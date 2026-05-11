@@ -1,116 +1,146 @@
-# CoreMentor_Gemma_4
-CoreMentor is a locally-hosted, agentic educational ecosystem powered by Gemma 4, designed to bridge the gap between classroom learning and professional aspirations. By utilizing a multi-agent mesh, the system automates homework grading through Vision/OCR, identifies learning patterns, and translates curriculum into career-themed exercises.
+# 🚀 CoreMentor_Gemma_4
 
+CoreMentor is an agentic educational ecosystem powered by **Gemma 2b** (local). It automates homework grading via Vision/OCR, analyzes learning patterns with a **Shadow Mentor**, and themes curriculum for a **Career Architect** experience.
 
-Python (For FastAPI & AI Agents):
-Download from python.org.
+## 🛠 Prerequisites
 
-Node.js (For Next.js Frontend):
-Download the LTS version (Long Term Support) from nodejs.org. This includes npm
+Before starting, ensure you have the following installed:
 
-Download Postgres, Interactive Installer (Windows) from postgresql.org.
+* **Python 3.10+**
+* **Node.js LTS** (includes npm)
+* **PostgreSQL 15+**
+* **Ollama** (Download at [ollama.com](https://ollama.com))
 
+---
 
-VS Code Extensions (Highly Recommended)
-To make his life easier, he should install these extensions from the VS Code Marketplace:
+## 🏗 Backend Setup (Python)
 
-Python (by Microsoft)
+Navigate to the backend folder and set up your virtual environment.
 
-ESLint (for catching JavaScript errors)
-
-Tailwind CSS IntelliSense (for the UI)
-
-Thunder Client or Postman (to test the API without a browser)
-
-
-
-
-for the .env file
-pip install python-dotenv
-
-
-
+```bash
 cd backend
 python -m venv venv
-
+# Activate on Windows:
 .\venv\Scripts\activate
-pip install fastapi uvicorn
 
-deactivate
-cd ..
-npx create-next-app@latest frontend
+```
 
+### 1. Install Dependencies
 
-DB:
-step 1: Install PostgreSQL
-Go to postgresql.org/download/windows and click the Interactive Installer by EnterpriseDB.
+We use specific versions to avoid the `bcrypt` and `jose` errors encountered during development.
 
-during insatalation:
-Expand this category and select psqlODBC or any 64-bit drivers. These are essential because FastAPI needs them to connect your Python backend to the PostgreSQL database.
+```bash
+# Core Dependencies
+pip install fastapi uvicorn sqlalchemy psycopg2 python-dotenv Pillow python-multipart
 
+# Security & Auth (CRITICAL: Bcrypt must be 4.3.0)
+pip install "python-jose[cryptography]" passlib[bcrypt]
+pip uninstall bcrypt -y
+pip install bcrypt==4.3.0
 
-Step 2: Create the Project Database (Using pgAdmin 4)
-pgAdmin 4 is the visual tool that comes with Postgres. It’s the easiest way for a beginner to manage data.  
+# AI Dependencies
+pip install ollama langchain-ollama langgraph
 
-Open pgAdmin 4 from the Start menu/Applications.
+```
 
-It will ask for a "Master Password" (set a simple one for the app).
+### 2. Environment Variables (`.env`)
 
-In the left sidebar, right-click on Servers > Register > Server.
+Create a `.env` file in the **root** directory (not inside /backend):
 
-Name it LocalHost.
+```env
+DB_USER=postgres
+DB_PASSWORD=YourPostgresPassword
+DB_HOST=localhost
+DB_NAME=core_mentor_db
+SECRET_KEY=your_super_secret_jwt_key
 
-In the Connection tab, set Host to localhost and use the password he set during installation.
+```
 
-Once connected, right-click Databases > Create > Database...
+---
 
-Database Name: core_mentor_db
+## 🐘 Database Setup (PostgreSQL)
 
-Click Save.
-
-
-cd backend
-.\venv\Scripts\activate
-pip install sqlalchemy psycopg2
-
-
-JWT Authentication:
-(make sure your venv is active):
-
-cd backend
-# Install the missing security libraries
-pip install "python-jose[cryptography]" passlib[bcrypt] python-multipart
-
-
-install pillow and dotenv:
-pip install Pillow python-dotenv
-
-
-run the seeder:
-run under the backend with venv active
-python seeder.py 
-
-to run the server:
-under the backend with the venv active
+1. Open **pgAdmin 4**.
+2. Create a new database named `core_mentor_db`.
+3. **Initialize Tables:** Start the backend once to let SQLAlchemy build the 17-table schema.
+```bash
 uvicorn main:app --reload
 
+```
+
+
+4. **Seed the Database:** Populate the system with Teachers, Students, Units, and Skill Nodes.
+```bash
+python seeder.py
+
+```
 
 
 
-pip install "python-jose[cryptography]" passlib[bcrypt] python-multipart Pillow python-dotenv
+---
+
+## 🧠 AI Setup (Ollama)
+
+Since we are working with consumer-grade hardware (e.g., MX250 GPUs), we use lightweight models:
+
+1. Open your terminal and pull the models:
+```bash
+ollama pull gemma:2b
+ollama pull moondream
+
+```
 
 
-errors fix:
-Pin the Bcrypt Version
-You need to downgrade bcrypt to version 4.3.0, which is the last version that works perfectly with passlib.
+2. Keep the Ollama application running in your system tray.
 
-Run these commands in your terminal (with your venv active):
+---
 
-Uninstall the current broken version:
+## 💻 Frontend Setup (Next.js)
 
-Bash
-pip uninstall bcrypt
-Install the compatible version:
+In a new terminal window:
 
-Bash
-pip install bcrypt==4.3.0
+```bash
+cd frontend
+npm install
+npm run dev
+
+```
+
+The app will be available at `http://localhost:3000`.
+
+---
+
+## 📂 Project Structure & API
+
+The API is versioned under `/api/v1`. You can test all endpoints at `http://127.0.0.1:8000/docs`.
+
+| Module | Router File | Purpose |
+| --- | --- | --- |
+| **Auth** | `auth_router.py` | Login/Signup & Profile Init |
+| **Units** | `unit_router.py` | Syllabus, Announcements, Lectures |
+| **Coursework** | `coursework_router.py` | Assignments & Grading Logic |
+| **Uploads** | `upload_router.py` | File Hashing & Image Compression |
+| **Gamification** | `gamification_router.py` | Skill Tree & XP Sync |
+| **Insights** | `insight_router.py` | Shadow Mentor & Parent Feedback |
+| **Admin** | `admin_router.py` | System Health & GPU Monitor |
+
+---
+
+## 🔑 Test Credentials
+
+Use these accounts after running `seeder.py`:
+
+* **Admin:** `admin@corementor.com` / `password123`
+* **Teacher:** `teacher@corementor.com` / `password123`
+* **Student:** `student@corementor.com` / `password123`
+
+---
+
+### **Team Tip: VS Code Extensions**
+
+To work effectively, install:
+
+* **Python** (Microsoft)
+* **Thunder Client** (To test the API)
+* **Tailwind CSS IntelliSense**
+* **ESLint**
