@@ -200,7 +200,17 @@ class ChromaMemoryStore:
         self.settings.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
 
         import chromadb
-        from langchain_chroma import Chroma
+
+        try:
+            from langchain_chroma import Chroma
+        except ImportError:
+            try:
+                from langchain_community.vectorstores import Chroma
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Install langchain-chroma to enable ChromaDB memory: "
+                    "`pip install langchain-chroma`."
+                ) from exc
 
         self._client = chromadb.PersistentClient(path=str(self.settings.chroma_persist_dir))
         self._chroma_cls = Chroma
@@ -371,4 +381,3 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
         elif value not in (None, "", []):
             merged[key] = value
     return merged
-

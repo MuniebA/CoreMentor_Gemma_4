@@ -43,6 +43,11 @@ def main() -> None:
     if memory is None:
         print("ChromaDB is not ready.")
         print(runtime.status())
+        print()
+        print("Install or refresh the vector-memory dependencies:")
+        print("  pip install -r requirements.txt")
+        print("or from the repository root:")
+        print("  pip install -r backend/requirements.txt")
         raise SystemExit(1)
 
     collections = memory.ensure_collections()
