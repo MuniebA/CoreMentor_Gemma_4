@@ -1,30 +1,63 @@
 // frontend/app/dashboard/teacher/page.tsx
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { getToken, getRole, getName, logout, authHeaders } from "../../../lib/auth";
+
+const API_BASE = "http://127.0.0.1:8000/api/v1";
+
+type PendingMark = {
+    draft_id: string;
+    student_id: string | null;
+    initial_score: number;
+    feedback_text: string;
+    agent_log: string;
+    status: string;
+};
+
+type Appeal = {
+    appeal_id: string;
+    student_note: string;
+    current_score: number | null;
+    agent_log: string | null;
+};
+
+type Submission = {
+    submission_id: string;
+    student_id: string;
+    assignment_id: string;
+    image_url: string | null;
+    uploaded_at: string | null;
+};
+
+type PendingMarksResponse = {
+    data?: PendingMark[];
+};
+
+type AppealsResponse = {
+    count?: number;
+    data?: Appeal[];
+};
+
+const subscribeToAuthStorage = (onStoreChange: () => void) => {
+    if (typeof window === "undefined") return () => {};
+
+    window.addEventListener("storage", onStoreChange);
+    return () => window.removeEventListener("storage", onStoreChange);
+};
 
 export default function TeacherDashboard() {
     const router = useRouter();
     const [activeTab, setActiveTab] = useState("pending");
-    const [pendingMarks, setPendingMarks] = useState<any[]>([]);
-    const [appeals, setAppeals] = useState<any[]>([]);
-    const [submissions, setSubmissions] = useState<any[]>([]);
+    const [pendingMarks, setPendingMarks] = useState<PendingMark[]>([]);
+    const [appeals, setAppeals] = useState<Appeal[]>([]);
+    const [submissions, setSubmissions] = useState<Submission[]>([]);
     const [appealCount, setAppealCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [editScore, setEditScore] = useState<{ [key: string]: number }>({});
     const [editFeedback, setEditFeedback] = useState<{ [key: string]: string }>({});
     const [message, setMessage] = useState("");
-    const name = getName();
-
-    useEffect(() => {
-        const role = getRole();
-        if (!getToken() || role !== "Teacher") {
-            router.push("/");
-            return;
-        }
-        fetchAll();
-    }, []);
+    const name = useSyncExternalStore(subscribeToAuthStorage, getName, () => null);
 
     const fetchAll = async () => {
         setLoading(true);
@@ -37,32 +70,32 @@ export default function TeacherDashboard() {
     };
 
     const fetchPendingMarks = async () => {
-        const res = await fetch("http://127.0.0.1:8000/marking/pending", {
+        const res = await fetch(`${API_BASE}/marking/pending`, {
             headers: authHeaders()
         });
-        const data = await res.json();
-        setPendingMarks(data.data || []);
+        const data: PendingMarksResponse = await res.json();
+        setPendingMarks(Array.isArray(data.data) ? data.data : []);
     };
 
     const fetchAppeals = async () => {
-        const res = await fetch("http://127.0.0.1:8000/marking/appeals/pending", {
+        const res = await fetch(`${API_BASE}/marking/appeals/pending`, {
             headers: authHeaders()
         });
-        const data = await res.json();
-        setAppeals(data.data || []);
+        const data: AppealsResponse = await res.json();
+        setAppeals(Array.isArray(data.data) ? data.data : []);
         setAppealCount(data.count || 0);
     };
 
     const fetchSubmissions = async () => {
-        const res = await fetch("http://127.0.0.1:8000/upload/all-submissions", {
+        const res = await fetch(`${API_BASE}/upload/all-submissions`, {
             headers: authHeaders()
         });
         const data = await res.json();
-        setSubmissions(data || []);
+        setSubmissions(Array.isArray(data) ? data : []);
     };
 
     const approveMark = async (draftId: string) => {
-        const res = await fetch(`http://127.0.0.1:8000/marking/${draftId}/approve`, {
+        const res = await fetch(`${API_BASE}/marking/${draftId}/approve`, {
             method: "PATCH",
             headers: authHeaders()
         });
@@ -73,7 +106,7 @@ export default function TeacherDashboard() {
     };
 
     const editAndApprove = async (draftId: string) => {
-        const res = await fetch(`http://127.0.0.1:8000/marking/${draftId}/edit-and-approve`, {
+        const res = await fetch(`${API_BASE}/marking/${draftId}/edit-and-approve`, {
             method: "PATCH",
             headers: authHeaders(),
             body: JSON.stringify({
@@ -87,8 +120,8 @@ export default function TeacherDashboard() {
         }
     };
 
-    const resolveAppeal = async (appealId: string, markingId: string) => {
-        const res = await fetch(`http://127.0.0.1:8000/marking/appeals/${appealId}/resolve`, {
+    const resolveAppeal = async (appealId: string) => {
+        const res = await fetch(`${API_BASE}/marking/appeals/${appealId}/resolve`, {
             method: "PATCH",
             headers: authHeaders(),
             body: JSON.stringify({
@@ -101,6 +134,19 @@ export default function TeacherDashboard() {
             fetchAppeals();
         }
     };
+
+    useEffect(() => {
+        const role = getRole();
+        if (!getToken() || role !== "Teacher") {
+            router.push("/");
+            return;
+        }
+        const timer = window.setTimeout(() => {
+            fetchAll();
+        }, 0);
+
+        return () => window.clearTimeout(timer);
+    }, []);
 
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -351,7 +397,7 @@ export default function TeacherDashboard() {
                                         </div>
 
                                         <button
-                                            onClick={() => resolveAppeal(appeal.appeal_id, appeal.marking_id)}
+                                            onClick={() => resolveAppeal(appeal.appeal_id)}
                                             className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition"
                                         >
                                             ✓ Resolve Appeal
@@ -403,7 +449,7 @@ export default function TeacherDashboard() {
                                                         : "N/A"}
                                                 </td>
                                                 <td className="px-4 py-3">
-                                                    
+                                                    <a
                                                         href={`http://127.0.0.1:8000/${sub.image_url}`}
                                                         target="_blank"
                                                         className="text-blue-500 hover:underline text-xs"

@@ -3,7 +3,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 import models
-from routers import auth_router, upload_router, marking_router, unit_router, coursework_router, gamification_router, insight_router, admin_router
+from routers import (
+    admin_router,
+    auth_router,
+    coursework_router,
+    gamification_router,
+    insight_router,
+    marking_router,
+    orchestration_router,
+    unit_router,
+    upload_router,
+)
 
 app = FastAPI(title="CoreMentor API")
 
@@ -25,6 +35,7 @@ app.include_router(coursework_router.router, prefix="/api/v1")
 app.include_router(gamification_router.router, prefix="/api/v1")
 app.include_router(insight_router.router, prefix="/api/v1")
 app.include_router(admin_router.router, prefix="/api/v1")
+app.include_router(orchestration_router.router, prefix="/api/v1")
 
 @app.get("/")
 def read_root():

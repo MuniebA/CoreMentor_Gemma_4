@@ -143,3 +143,22 @@ async def upload_answer_key(
     assignment.answer_key_url = save_path
     db.commit()
     return {"message": "Answer key uploaded", "file_path": save_path}
+
+
+@router.get("/all-submissions")
+def get_all_submissions(
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher", "Admin"))
+):
+    submissions = db.query(models.Submission).order_by(models.Submission.uploaded_at.desc()).all()
+
+    return [
+        {
+            "submission_id": str(submission.id),
+            "student_id": str(submission.student_id),
+            "assignment_id": str(submission.assignment_id),
+            "image_url": submission.image_url,
+            "uploaded_at": submission.uploaded_at.isoformat() if submission.uploaded_at else None,
+        }
+        for submission in submissions
+    ]
