@@ -128,6 +128,11 @@ def _intake_node(repository: OrchestrationRepository):
     def node(state: CoreMentorGraphState) -> CoreMentorGraphState:
         request = OrchestrationRequest(**state["request"])
         context = repository.load_context(request=request, actor=state["actor"])
+        context["_run_id"] = state["run_id"]
+        context["_actor"] = {
+            "user_id": state["actor"].get("sub"),
+            "role": state["actor"].get("role"),
+        }
         selected_agents = _select_agents(request=request)
 
         return {

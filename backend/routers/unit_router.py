@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
 import models, auth
+import access
 from database import SessionLocal
 
 router = APIRouter(prefix="/units", tags=["Units & Content"])
@@ -53,9 +54,7 @@ def create_announcement(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
         
     new_announcement = models.Announcement(
         unit_id=unit_id,
@@ -69,7 +68,7 @@ def create_announcement(
 # 3. Get Unit Home Page details
 @router.get("/{unit_id}/home")
 def get_unit_home(unit_id: str, db: Session = Depends(get_db), payload: dict = Depends(auth.decode_token)):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     teacher = db.query(models.User).filter(models.User.id == unit.teacher_id).first()
     announcements = db.query(models.Announcement).filter(models.Announcement.unit_id == unit_id).all()
     
@@ -88,9 +87,7 @@ async def upload_syllabus(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     unit.syllabus_url = syllabus_url
     db.commit()
     return {"message": "Syllabus updated successfully"}
@@ -105,6 +102,7 @@ def create_lecture(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
+    access.assert_can_access_unit(db, payload, unit_id)
     new_lecture = models.Lecture(
         unit_id=unit_id,
         week_number=week,
@@ -117,5 +115,10 @@ def create_lecture(
 
 # 6. Get All Lectures for a Unit
 @router.get("/{unit_id}/lectures")
-def get_lectures(unit_id: str, db: Session = Depends(get_db)):
+def get_lectures(
+    unit_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.decode_token),
+):
+    access.assert_can_access_unit(db, payload, unit_id)
     return db.query(models.Lecture).filter(models.Lecture.unit_id == unit_id).order_by(models.Lecture.week_number).all()

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+import access
 import models
 from agents.schemas import OrchestrationRequest
 
@@ -32,7 +33,7 @@ class OrchestrationRepository:
         context: Dict[str, Any] = {}
 
         if request.submission_id:
-            submission = self._get_submission(request.submission_id)
+            submission = access.assert_can_access_submission(self.db, actor, request.submission_id)
             context["submission"] = self._submission_to_dict(submission)
             student_id = student_id or str(submission.student_id)
             assignment_id = assignment_id or str(submission.assignment_id)
@@ -43,14 +44,14 @@ class OrchestrationRepository:
 
         if student_id:
             student = self._get_student(student_id)
-            self._assert_student_access(student, actor)
+            access.assert_can_access_student(self.db, actor, str(student.id))
             context["student"] = self._student_to_dict(student)
-            context["recent_marks"] = self.get_recent_marks(str(student.id))
-            context["skill_progress"] = self.get_skill_progress(str(student.id))
-            context["open_assignments"] = self.get_open_assignments(str(student.id))
+            context["recent_marks"] = self.get_recent_marks(str(student.id), actor=actor)
+            context["skill_progress"] = self.get_skill_progress(str(student.id), actor=actor)
+            context["open_assignments"] = self.get_open_assignments(str(student.id), actor=actor)
 
         if assignment_id:
-            assignment = self._get_assignment(assignment_id)
+            assignment = access.assert_can_access_assignment(self.db, actor, assignment_id)
             context["assignment"] = self._assignment_to_dict(assignment)
             if assignment.unit_id:
                 unit = (
@@ -69,9 +70,13 @@ class OrchestrationRepository:
 
         return context
 
-    def get_recent_marks(self, student_id: str) -> List[Dict[str, Any]]:
+    def get_recent_marks(
+        self,
+        student_id: str,
+        actor: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         student_uuid = self._uuid(student_id, "student_id")
-        rows = (
+        query = (
             self.db.query(models.AIMarkingDraft, models.Submission, models.Assignment)
             .join(
                 models.Submission,
@@ -79,10 +84,13 @@ class OrchestrationRepository:
             )
             .join(models.Assignment, models.Assignment.id == models.Submission.assignment_id)
             .filter(models.Submission.student_id == student_uuid)
-            .order_by(models.Submission.uploaded_at.desc())
-            .limit(12)
-            .all()
         )
+        if actor and actor.get("role") == "Teacher":
+            query = query.join(models.Unit, models.Unit.id == models.Assignment.unit_id).filter(
+                models.Unit.teacher_id == self._uuid(actor.get("sub"), "user_id")
+            )
+
+        rows = query.order_by(models.Submission.uploaded_at.desc()).limit(12).all()
 
         return [
             {
@@ -98,14 +106,23 @@ class OrchestrationRepository:
             for mark, submission, assignment in rows
         ]
 
-    def get_skill_progress(self, student_id: str) -> List[Dict[str, Any]]:
+    def get_skill_progress(
+        self,
+        student_id: str,
+        actor: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         student_uuid = self._uuid(student_id, "student_id")
-        rows = (
+        query = (
             self.db.query(models.StudentSkillProgress, models.SkillNode)
             .join(models.SkillNode, models.SkillNode.id == models.StudentSkillProgress.node_id)
             .filter(models.StudentSkillProgress.student_id == student_uuid)
-            .all()
         )
+        if actor and actor.get("role") == "Teacher":
+            query = query.join(models.Unit, models.Unit.id == models.SkillNode.unit_id).filter(
+                models.Unit.teacher_id == self._uuid(actor.get("sub"), "user_id")
+            )
+
+        rows = query.all()
 
         return [
             {
@@ -118,13 +135,23 @@ class OrchestrationRepository:
             for progress, node in rows
         ]
 
-    def get_open_assignments(self, student_id: str) -> List[Dict[str, Any]]:
+    def get_open_assignments(
+        self,
+        student_id: str,
+        actor: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         student_uuid = self._uuid(student_id, "student_id")
-        enrollments = (
+        enrollment_query = (
             self.db.query(models.Enrollment)
             .filter(models.Enrollment.student_id == student_uuid)
-            .all()
         )
+        if actor and actor.get("role") == "Teacher":
+            enrollment_query = enrollment_query.join(
+                models.Unit,
+                models.Unit.id == models.Enrollment.unit_id,
+            ).filter(models.Unit.teacher_id == self._uuid(actor.get("sub"), "user_id"))
+
+        enrollments = enrollment_query.all()
         unit_ids = [enrollment.unit_id for enrollment in enrollments]
         if not unit_ids:
             return []
@@ -177,6 +204,45 @@ class OrchestrationRepository:
 
         self.db.commit()
         return persistence
+
+    def record_agent_run(
+        self,
+        state: Dict[str, Any],
+        actor: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        context = state.get("context", {})
+        request = state.get("request", {})
+        student = context.get("student") or {}
+        submission = context.get("submission") or {}
+        assignment = context.get("assignment") or {}
+        errors = state.get("errors", [])
+
+        run = models.AgentRun(
+            id=self._uuid(state["run_id"], "run_id"),
+            workflow=state.get("workflow") or request.get("workflow") or "auto",
+            actor_user_id=self._uuid(actor.get("sub"), "user_id"),
+            actor_role=actor.get("role"),
+            student_id=self._uuid(student["id"], "student_id") if student.get("id") else None,
+            submission_id=(
+                self._uuid(submission["id"], "submission_id") if submission.get("id") else None
+            ),
+            assignment_id=(
+                self._uuid(assignment["id"], "assignment_id") if assignment.get("id") else None
+            ),
+            selected_agents=state.get("selected_agents", []),
+            status=state.get("status", "completed"),
+            persisted=request.get("persist", True),
+            error_summary="\n".join(str(error) for error in errors) if errors else None,
+            finished_at=datetime.now(timezone.utc),
+        )
+        self.db.merge(run)
+        self.db.commit()
+
+        return {
+            "run_id": str(run.id),
+            "table": "agent_runs",
+            "status": run.status,
+        }
 
     def _upsert_marking_draft(
         self,
@@ -305,37 +371,6 @@ class OrchestrationRepository:
             )
 
         return {"table": "agent_interactions", "written": written}
-
-    def _assert_student_access(self, student: models.StudentProfile, actor: Dict[str, Any]) -> None:
-        role = actor.get("role")
-        actor_id = actor.get("sub")
-
-        if role in {"Admin", "Teacher"}:
-            return
-
-        if role == "Student" and str(student.user_id) == actor_id:
-            return
-
-        if role == "Parent":
-            parent = (
-                self.db.query(models.ParentProfile)
-                .filter(models.ParentProfile.user_id == self._uuid(actor_id, "user_id"))
-                .first()
-            )
-            if parent:
-                link = (
-                    self.db.query(models.ParentChildLink)
-                    .filter(models.ParentChildLink.parent_id == parent.id)
-                    .filter(models.ParentChildLink.student_id == student.id)
-                    .first()
-                )
-                if link:
-                    return
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have access to orchestrate for this student.",
-        )
 
     def _get_student_by_user(self, user_id: Optional[str]) -> models.StudentProfile:
         student = (

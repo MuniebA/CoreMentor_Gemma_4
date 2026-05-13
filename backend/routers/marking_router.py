@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 import models
 import auth
+import access
 from database import SessionLocal
 
 router = APIRouter(prefix="/marking", tags=["Marking & Appeals"])
@@ -42,18 +43,23 @@ def get_pending_marks(
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
     """Returns all AI marking drafts that are waiting for teacher approval."""
-    drafts = db.query(models.AIMarkingDraft).filter(
-        models.AIMarkingDraft.status == "Pending"
-    ).all()
+    query = (
+        db.query(models.AIMarkingDraft, models.Submission)
+        .join(models.Submission, models.Submission.id == models.AIMarkingDraft.submission_id)
+        .join(models.Assignment, models.Assignment.id == models.Submission.assignment_id)
+        .filter(models.AIMarkingDraft.status == "Pending")
+    )
+    if payload.get("role") == "Teacher":
+        query = query.join(models.Unit, models.Unit.id == models.Assignment.unit_id).filter(
+            models.Unit.teacher_id == payload.get("sub")
+        )
+    rows = query.all()
 
-    if not drafts:
+    if not rows:
         return {"message": "No pending marks", "data": []}
 
     results = []
-    for draft in drafts:
-        submission = db.query(models.Submission).filter(
-            models.Submission.id == draft.submission_id
-        ).first()
+    for draft, submission in rows:
         results.append({
             "draft_id": str(draft.id),
             "submission_id": str(draft.submission_id),
@@ -75,12 +81,7 @@ def approve_mark(
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
     """Teacher approves the AI generated mark. Moves status from Pending to Approved."""
-    draft = db.query(models.AIMarkingDraft).filter(
-        models.AIMarkingDraft.id == draft_id
-    ).first()
-
-    if not draft:
-        raise HTTPException(status_code=404, detail="Marking draft not found")
+    draft = access.assert_can_access_marking_draft(db, payload, draft_id)
 
     if draft.status == "Approved":
         raise HTTPException(status_code=400, detail="This mark is already approved")
@@ -104,12 +105,7 @@ def edit_and_approve_mark(
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
     """Teacher edits the AI score and feedback before approving."""
-    draft = db.query(models.AIMarkingDraft).filter(
-        models.AIMarkingDraft.id == draft_id
-    ).first()
-
-    if not draft:
-        raise HTTPException(status_code=404, detail="Marking draft not found")
+    draft = access.assert_can_access_marking_draft(db, payload, draft_id)
 
     draft.initial_score = data.new_score
     draft.feedback_text = data.feedback_text
@@ -177,13 +173,7 @@ def submit_appeal(
     if payload.get("role") != "Student":
         raise HTTPException(status_code=403, detail="Only students can submit appeals")
 
-    # Check the mark exists and is approved before allowing appeal
-    draft = db.query(models.AIMarkingDraft).filter(
-        models.AIMarkingDraft.id == data.marking_id
-    ).first()
-
-    if not draft:
-        raise HTTPException(status_code=404, detail="Mark not found")
+    draft = access.assert_can_access_marking_draft(db, payload, data.marking_id)
 
     if draft.status != "Approved":
         raise HTTPException(
@@ -222,19 +212,27 @@ def get_pending_appeals(
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
     """Returns all appeals waiting for teacher review. Powers the notification bell."""
-    appeals = db.query(models.Appeal).all()
+    query = (
+        db.query(models.Appeal, models.AIMarkingDraft, models.Submission)
+        .join(models.AIMarkingDraft, models.AIMarkingDraft.id == models.Appeal.marking_id)
+        .join(models.Submission, models.Submission.id == models.AIMarkingDraft.submission_id)
+        .join(models.Assignment, models.Assignment.id == models.Submission.assignment_id)
+    )
+    if payload.get("role") == "Teacher":
+        query = query.join(models.Unit, models.Unit.id == models.Assignment.unit_id).filter(
+            models.Unit.teacher_id == payload.get("sub")
+        )
+    rows = query.all()
 
-    if not appeals:
+    if not rows:
         return {"message": "No pending appeals", "count": 0, "data": []}
 
     results = []
-    for appeal in appeals:
-        draft = db.query(models.AIMarkingDraft).filter(
-            models.AIMarkingDraft.id == appeal.marking_id
-        ).first()
+    for appeal, draft, submission in rows:
         results.append({
             "appeal_id": str(appeal.id),
             "marking_id": str(appeal.marking_id),
+            "student_id": str(submission.student_id),
             "student_note": appeal.student_note,
             "current_score": draft.initial_score if draft else None,
             "agent_log": draft.agent_log if draft else None
@@ -256,12 +254,7 @@ def resolve_appeal(
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
     """Teacher reviews the appeal, sees the agent log, and makes a final decision."""
-    appeal = db.query(models.Appeal).filter(
-        models.Appeal.id == appeal_id
-    ).first()
-
-    if not appeal:
-        raise HTTPException(status_code=404, detail="Appeal not found")
+    appeal = access.assert_can_access_appeal(db, payload, appeal_id)
 
     # Update the mark with the teacher's final decision
     draft = db.query(models.AIMarkingDraft).filter(

@@ -28,9 +28,13 @@ class CoreMentorAISettings:
     ollama_base_url: str
     ollama_chat_model: str
     ollama_embedding_model: str
+    ollama_vision_model: str
     ollama_temperature: float
     ollama_num_ctx: int
     ollama_keep_alive: str
+    vision_enabled: bool
+    vision_max_images: int
+    vision_max_image_bytes: int
     chroma_persist_dir: Path
     chroma_student_collection: str
     chroma_career_collection: str
@@ -51,9 +55,13 @@ def get_ai_settings() -> CoreMentorAISettings:
             "COREMENTOR_OLLAMA_EMBED_MODEL",
             "nomic-embed-text",
         ),
+        ollama_vision_model=_env("COREMENTOR_OLLAMA_VISION_MODEL", "moondream"),
         ollama_temperature=_env_float("COREMENTOR_OLLAMA_TEMPERATURE", 0.2),
         ollama_num_ctx=_env_int("COREMENTOR_OLLAMA_NUM_CTX", 4096),
         ollama_keep_alive=_env("COREMENTOR_OLLAMA_KEEP_ALIVE", "10m"),
+        vision_enabled=_env_bool("COREMENTOR_VISION_ENABLED", True),
+        vision_max_images=_env_int("COREMENTOR_VISION_MAX_IMAGES", 3),
+        vision_max_image_bytes=_env_int("COREMENTOR_VISION_MAX_IMAGE_BYTES", 6_000_000),
         chroma_persist_dir=_path_env("CHROMA_PERSIST_DIR", "backend/storage/chroma"),
         chroma_student_collection=_env(
             "CHROMA_STUDENT_PATTERNS_COLLECTION",

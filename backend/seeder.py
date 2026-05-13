@@ -11,7 +11,7 @@ def seed():
     print("--- Phase 1: Cleaning Database ---")
     # Must delete in reverse order of dependencies (children first)
     tables = [
-        models.DailyHomeworkPlan, models.AgentInteraction, models.Appeal, 
+        models.DailyHomeworkPlan, models.AgentRun, models.AgentInteraction, models.Appeal, 
         models.AIMarkingDraft, models.Submission, models.Assignment, 
         models.StudentSkillProgress, models.SkillNode, models.Enrollment, 
         models.Lecture, models.Announcement, models.Unit, 

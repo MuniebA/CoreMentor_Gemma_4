@@ -4,10 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 import auth
+import access
 import models
 from agents.coordinator import MeshCoordinator, MeshCoordinatorBusyError
 from agents.runtime import CoreMentorRuntime
-from agents.schemas import OrchestrationRequest, OrchestrationResponse
+from agents.schemas import (
+    OrchestrationRequest,
+    OrchestrationResponse,
+    StudentInsightChatRequest,
+    StudentInsightChatResponse,
+)
+from agents.student_insight_chat import StudentInsightChatService
 from database import SessionLocal
 
 
@@ -84,6 +91,21 @@ def initialize_chroma(payload: dict = Depends(auth.require_role("Teacher", "Admi
     }
 
 
+@router.post("/chat/student", response_model=StudentInsightChatResponse)
+def chat_about_student(
+    request: StudentInsightChatRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher", "Admin")),
+):
+    """Teacher/admin RAG chat over one authorized student's Postgres and Chroma data."""
+
+    service = StudentInsightChatService(db=db, runtime=CoreMentorRuntime())
+    try:
+        return service.answer(request=request, actor=payload)
+    except MeshCoordinatorBusyError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
 @router.get("/audit/{student_id}")
 def get_agent_audit(
     student_id: str,
@@ -92,16 +114,25 @@ def get_agent_audit(
 ):
     """Return recent persisted agent outputs for a student's test run."""
 
+    student = access.assert_can_access_student(db, payload, student_id)
+
+    runs = (
+        db.query(models.AgentRun)
+        .filter(models.AgentRun.student_id == student.id)
+        .order_by(models.AgentRun.started_at.desc())
+        .limit(10)
+        .all()
+    )
     interactions = (
         db.query(models.AgentInteraction)
-        .filter(models.AgentInteraction.student_id == student_id)
+        .filter(models.AgentInteraction.student_id == student.id)
         .order_by(models.AgentInteraction.timestamp.desc())
         .limit(20)
         .all()
     )
     plans = (
         db.query(models.DailyHomeworkPlan)
-        .filter(models.DailyHomeworkPlan.student_id == student_id)
+        .filter(models.DailyHomeworkPlan.student_id == student.id)
         .order_by(models.DailyHomeworkPlan.planned_for_date.desc())
         .limit(5)
         .all()
@@ -109,7 +140,7 @@ def get_agent_audit(
     drafts = (
         db.query(models.AIMarkingDraft, models.Submission)
         .join(models.Submission, models.Submission.id == models.AIMarkingDraft.submission_id)
-        .filter(models.Submission.student_id == student_id)
+        .filter(models.Submission.student_id == student.id)
         .order_by(models.Submission.uploaded_at.desc())
         .limit(10)
         .all()
@@ -117,6 +148,23 @@ def get_agent_audit(
 
     return {
         "student_id": student_id,
+        "agent_runs": [
+            {
+                "id": str(run.id),
+                "workflow": run.workflow,
+                "actor_user_id": str(run.actor_user_id) if run.actor_user_id else None,
+                "actor_role": run.actor_role,
+                "submission_id": str(run.submission_id) if run.submission_id else None,
+                "assignment_id": str(run.assignment_id) if run.assignment_id else None,
+                "selected_agents": run.selected_agents or [],
+                "status": run.status,
+                "persisted": run.persisted,
+                "error_summary": run.error_summary,
+                "started_at": run.started_at.isoformat() if run.started_at else None,
+                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+            }
+            for run in runs
+        ],
         "agent_interactions": [
             {
                 "id": str(item.id),

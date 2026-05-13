@@ -45,13 +45,17 @@ COREMENTOR_AGENT_MODE=hybrid
 COREMENTOR_LLM_ENABLED=true
 COREMENTOR_CHROMA_ENABLED=true
 COREMENTOR_DOCLING_ENABLED=true
+COREMENTOR_VISION_ENABLED=true
 
 OLLAMA_BASE_URL=http://localhost:11434
 COREMENTOR_OLLAMA_MODEL=gemma4:4b
 COREMENTOR_OLLAMA_EMBED_MODEL=nomic-embed-text
+COREMENTOR_OLLAMA_VISION_MODEL=moondream
 COREMENTOR_OLLAMA_TEMPERATURE=0.2
 COREMENTOR_OLLAMA_NUM_CTX=4096
 COREMENTOR_OLLAMA_KEEP_ALIVE=10m
+COREMENTOR_VISION_MAX_IMAGES=3
+COREMENTOR_VISION_MAX_IMAGE_BYTES=6000000
 
 CHROMA_PERSIST_DIR=backend/storage/chroma
 CHROMA_STUDENT_PATTERNS_COLLECTION=student_patterns
@@ -59,9 +63,11 @@ CHROMA_CAREER_DATA_COLLECTION=career_data
 COREMENTOR_UPLOADS_DIR=backend/uploads
 ```
 
-The chat model and embedding model are intentionally separate. `gemma4:4b` is
-used for agent reasoning through `ChatOllama`; `nomic-embed-text` is used for
-ChromaDB embeddings through `OllamaEmbeddings`.
+The chat, embedding, and vision models are intentionally separate. `gemma4:4b`
+is used for agent reasoning through `ChatOllama`; `nomic-embed-text` is used
+for ChromaDB embeddings through `OllamaEmbeddings`; `moondream` is the default
+lightweight local Ollama vision model for describing uploaded submission
+images before grading.
 
 ## Local Setup
 
@@ -76,6 +82,7 @@ Pull the local Ollama models:
 ```bash
 ollama pull gemma4:4b
 ollama pull nomic-embed-text
+ollama pull moondream
 ```
 
 Create the ChromaDB collections and seed starter career examples:

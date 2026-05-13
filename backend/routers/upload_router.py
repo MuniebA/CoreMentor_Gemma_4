@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from PIL import Image
 import models
 import auth
+import access
 from database import SessionLocal
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
@@ -37,9 +38,7 @@ async def upload_syllabus(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
 
     content = await file.read()
     file_hash = hash_file(content)
@@ -64,6 +63,7 @@ async def upload_lecture(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
+    access.assert_can_access_unit(db, payload, unit_id)
     content = await file.read()
     file_hash = hash_file(content)
     file_ext = file.filename.split(".")[-1]
@@ -94,6 +94,10 @@ async def upload_homework(
     if payload.get("role") != "Student":
         raise HTTPException(status_code=403, detail="Only students can upload homework")
 
+    student = access.get_student_by_user(db, payload.get("sub"))
+    if not access.student_is_enrolled_for_assignment(db, str(student.id), assignment_id):
+        raise HTTPException(status_code=403, detail="You are not enrolled in this assignment's unit")
+
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Only image files are allowed for homework")
 
@@ -108,8 +112,6 @@ async def upload_homework(
         image.thumbnail((1920, 1920))
         image.save(save_path, "JPEG", quality=85)
 
-    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
-    
     new_submission = models.Submission(
         student_id=student.id,
         assignment_id=assignment_id,
@@ -127,9 +129,7 @@ async def upload_answer_key(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
-    assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+    assignment = access.assert_can_access_assignment(db, payload, assignment_id)
 
     content = await file.read()
     file_hash = hash_file(content)
@@ -150,7 +150,15 @@ def get_all_submissions(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
-    submissions = db.query(models.Submission).order_by(models.Submission.uploaded_at.desc()).all()
+    query = (
+        db.query(models.Submission)
+        .join(models.Assignment, models.Assignment.id == models.Submission.assignment_id)
+    )
+    if payload.get("role") == "Teacher":
+        query = query.join(models.Unit, models.Unit.id == models.Assignment.unit_id).filter(
+            models.Unit.teacher_id == payload.get("sub")
+        )
+    submissions = query.order_by(models.Submission.uploaded_at.desc()).all()
 
     return [
         {

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models, auth
+from agents.config import get_ai_settings
 from database import SessionLocal
 
 router = APIRouter(prefix="/admin", tags=["Admin Control Panel"])
@@ -39,12 +40,12 @@ def update_user_status(user_id: str, data: UserUpdate, db: Session = Depends(get
 # 3. GET /system/status - GPU & Mutex Monitor
 @router.get("/system/status")
 def get_gpu_health(payload: dict = Depends(auth.require_role("Admin"))):
-    # Logic for Member 4's Performance Monitor
+    settings = get_ai_settings()
     return {
         "status": "Healthy",
         "gpu_lock": "Unlocked",
-        "active_llm": "Gemma-2b",
-        "vision_engine": "Moondream"
+        "active_llm": settings.ollama_chat_model,
+        "vision_engine": settings.ollama_vision_model,
     }
 
 # 4. DELETE /cleanup - Temporary File Purge

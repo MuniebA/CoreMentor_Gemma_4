@@ -27,12 +27,17 @@ def build_marking_draft(
     evidence: List[str] = []
 
     parsed_submission = _load_submission_text(runtime, submission.get("image_url"))
+    image_descriptions = parsed_submission.get("image_descriptions") or []
     if parsed_submission.get("available"):
         evidence_score += 8.0
         evidence.append(parsed_submission["detail"])
     elif submission.get("image_url"):
         evidence_score += 4.0
         evidence.append("student submission file is available but was not parsed")
+
+    if image_descriptions:
+        evidence_score += 6.0
+        evidence.append(parsed_submission.get("image_detail", "image evidence was described"))
 
     if assignment.get("answer_key_url"):
         evidence_score += 12.0
@@ -71,10 +76,19 @@ def build_marking_draft(
             "summary": "Vision grading scaffold generated a review-ready draft.",
             "evidence": evidence,
             "limitations": [
-                "Docling and Gemma enrichment fall back to deterministic scoring when unavailable.",
+                "Docling, image description, and Gemma enrichment fall back to deterministic scoring when unavailable.",
                 "Teacher review is recommended before publishing feedback.",
             ],
-            "parsed_submission_preview": parsed_submission.get("text", "")[:1000],
+            "parsed_submission": {
+                "text_available": parsed_submission.get("available", False),
+                "text_detail": parsed_submission.get("detail", ""),
+                "text_preview": parsed_submission.get("text", "")[:1000],
+                "image_available": bool(image_descriptions),
+                "image_detail": parsed_submission.get("image_detail", ""),
+                "image_descriptions": image_descriptions,
+                "image_errors": parsed_submission.get("image_errors", []),
+                "vision_model": parsed_submission.get("vision_model"),
+            },
         },
     }
 
@@ -94,7 +108,14 @@ def build_marking_draft(
                             "student": student,
                             "assignment": assignment,
                             "submission": submission,
-                            "parsed_submission_text": parsed_submission.get("text", ""),
+                            "parsed_submission": {
+                                "text": parsed_submission.get("text", ""),
+                                "text_detail": parsed_submission.get("detail", ""),
+                                "image_descriptions": image_descriptions,
+                                "image_detail": parsed_submission.get("image_detail", ""),
+                                "image_errors": parsed_submission.get("image_errors", []),
+                                "vision_model": parsed_submission.get("vision_model"),
+                            },
                             "fallback_artifact": artifact,
                         }
                     ),
@@ -194,7 +215,12 @@ def build_shadow_mentor_profile(
             fallback=artifact,
         )
 
-    _save_student_patterns(runtime, student.get("id"), artifact.get("patterns", []))
+    _save_student_patterns(
+        runtime,
+        student.get("id"),
+        artifact.get("patterns", []),
+        metadata=_student_memory_metadata(context),
+    )
     return artifact
 
 
@@ -397,15 +423,37 @@ def _build_priority_subjects(patterns: List[str]) -> List[Dict[str, str]]:
     return priorities
 
 
-def _load_submission_text(runtime: Optional[Any], file_path: Optional[str]) -> Dict[str, str]:
+def _load_submission_text(runtime: Optional[Any], file_path: Optional[str]) -> Dict[str, Any]:
+    parsed: Dict[str, Any] = {
+        "available": False,
+        "text": "",
+        "detail": "Docling was not invoked.",
+        "image_paths": [],
+        "image_descriptions": [],
+        "image_detail": "",
+        "image_errors": [],
+        "vision_model": None,
+    }
     if runtime is None or not file_path:
-        return {"available": False, "text": "", "detail": "Docling was not invoked."}
+        return parsed
 
     documents = getattr(runtime, "documents", None)
     if documents is None:
-        return {"available": False, "text": "", "detail": "Docling is unavailable."}
+        parsed["detail"] = "Docling is unavailable."
+    else:
+        parsed.update(documents.load_text(file_path))
 
-    return documents.load_text(file_path)
+    describe_images = getattr(runtime, "describe_submission_images", None)
+    if describe_images is None:
+        parsed["image_detail"] = "Vision description is unavailable."
+        return parsed
+
+    image_result = describe_images(file_path, parsed.get("image_paths", []))
+    parsed["image_descriptions"] = image_result.get("descriptions", [])
+    parsed["image_detail"] = image_result.get("detail", "")
+    parsed["image_errors"] = image_result.get("errors", [])
+    parsed["vision_model"] = image_result.get("model")
+    return parsed
 
 
 def _search_student_memory(
@@ -431,6 +479,7 @@ def _save_student_patterns(
     runtime: Optional[Any],
     student_id: Optional[str],
     patterns: List[str],
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     if runtime is None or not student_id or not patterns:
         return
@@ -440,7 +489,7 @@ def _save_student_patterns(
         return
 
     try:
-        memory.add_student_pattern(student_id=student_id, texts=patterns)
+        memory.add_student_pattern(student_id=student_id, texts=patterns, metadata=metadata)
     except Exception:
         return
 
@@ -467,3 +516,22 @@ def _json_context(payload: Dict[str, Any]) -> str:
     import json
 
     return json.dumps(payload, indent=2, default=str)
+
+
+def _student_memory_metadata(context: Dict[str, Any]) -> Dict[str, Any]:
+    assignment = context.get("assignment") or {}
+    submission = context.get("submission") or {}
+    unit = context.get("unit") or {}
+    actor = context.get("_actor") or {}
+
+    return {
+        "run_id": context.get("_run_id"),
+        "actor_user_id": actor.get("user_id"),
+        "actor_role": actor.get("role"),
+        "assignment_id": assignment.get("id"),
+        "submission_id": submission.get("id"),
+        "unit_id": unit.get("id") or assignment.get("unit_id"),
+        "teacher_id": unit.get("teacher_id"),
+        "agent": "shadow_mentor",
+        "source": "corementor_orchestration",
+    }
