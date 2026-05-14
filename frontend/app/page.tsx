@@ -1,4 +1,4 @@
-// frontend/src/app/page.tsx
+// frontend/app/page.tsx
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,7 +16,8 @@ export default function LoginPage() {
         setLoading(true);
         setError("");
         try {
-            const res = await fetch("http://127.0.0.1:8000/auth/login", {
+            // FIX: Added /api/v1 to correctly route to your FastAPI backend
+            const res = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, password }),
@@ -25,84 +26,91 @@ export default function LoginPage() {
             const data = await res.json();
 
             if (!res.ok) {
-                setError(data.detail || "Login failed");
+                setError(data.detail || "Login failed. Please check your credentials.");
                 return;
             }
 
+            // Save auth details using your existing lib
             saveToken(data.access_token);
             saveRole(data.role);
             saveName(data.full_name);
 
-            // Redirect based on role
-            if (data.role === "Teacher") router.push("/dashboard/teacher");
-            else if (data.role === "Student") router.push("/dashboard/student");
-            else if (data.role === "Parent") router.push("/dashboard/parent");
-            else if (data.role === "Admin") router.push("/dashboard/admin");
+            // Redirect based on role to the correct dashboard
+            const lowerRole = data.role.toLowerCase();
+            router.push(`/dashboard/${lowerRole}`);
 
         } catch (err) {
-            setError("Could not connect to server");
+            setError("Could not connect to the server. Is the backend running?");
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-gray-700 flex items-center justify-center">
-            <div className="bg-white p-8 rounded-2xl shadow-md w-full max-w-md">
-                <h1 className="text-3xl font-bold text-center text-blue-600 mb-2">
-                    CoreMentor
-                </h1>
-                <p className="text-center text-gray-500 mb-8">
-                    AI-Powered Learning Platform
-                </p>
+        // UI FIX: Applied the EdTech Minimalist Design Schema
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+            <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 w-full max-w-md">
+                
+                <div className="text-center mb-8">
+                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+                        CoreMentor
+                    </h1>
+                    <p className="text-slate-500 mt-2 text-sm">
+                        AI-Powered Learning Platform
+                    </p>
+                </div>
 
                 {error && (
-                    <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm">
+                    <div className="mb-6 p-3 bg-red-50 border border-red-100 text-red-600 rounded-md text-sm text-center">
                         {error}
                     </div>
                 )}
 
-                <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Email
-                    </label>
-                    <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
-                        placeholder="Enter your email"
-                    />
+                <div className="space-y-5">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                            Email
+                        </label>
+                        <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors"
+                            placeholder="student@corementor.com"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                            Password
+                        </label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                            className="w-full px-4 py-2.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-slate-900 transition-colors"
+                            placeholder="••••••••"
+                        />
+                    </div>
+
+                    <button
+                        onClick={handleLogin}
+                        disabled={loading}
+                        className="w-full bg-blue-600 text-white py-2.5 rounded-md font-medium hover:bg-blue-700 transition duration-200 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
+                    >
+                        {loading ? "Logging in..." : "Sign In"}
+                    </button>
                 </div>
 
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Password
-                    </label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400 text-gray-800"
-                        placeholder="Enter your password"
-                    />
+                <div className="mt-8 text-center border-t border-slate-100 pt-6">
+                    <p className="text-sm text-slate-500">
+                        Don&apos;t have an account?{" "}
+                        <Link href="/signup" className="text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                            Create one
+                        </Link>
+                    </p>
                 </div>
-
-                <button
-                    onClick={handleLogin}
-                    disabled={loading}
-                    className="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
-                >
-                    {loading ? "Logging in..." : "Login"}
-                </button>
-
-                <p className="text-center text-sm text-gray-500 mt-4">
-                    Don&apos;t have an account?{" "}
-                    <Link href="/signup" className="text-blue-600 hover:underline">
-                        Sign up
-                    </Link>
-                </p>
             </div>
         </div>
     );

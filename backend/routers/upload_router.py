@@ -143,3 +143,21 @@ async def upload_answer_key(
     assignment.answer_key_url = save_path
     db.commit()
     return {"message": "Answer key uploaded", "file_path": save_path}
+
+# --- 5. Teacher: Upload Lecture File/Image
+@router.post("/lecture-file")
+async def upload_lecture_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher"))
+):
+    content = await file.read()
+    file_ext = file.filename.split(".")[-1]
+    file_name = f"{uuid.uuid4()}.{file_ext}"
+    save_path = os.path.join(UPLOAD_BASE, "lectures", file_name)
+    
+    with open(save_path, "wb") as f:
+        f.write(content)
+        
+    # Return the URL path so the frontend can embed it
+    return {"url": f"uploads/lectures/{file_name}", "filename": file.filename}

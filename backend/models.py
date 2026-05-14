@@ -53,6 +53,7 @@ class Unit(Base):
     unit_name = Column(String, nullable=False)
     description = Column(Text)
     syllabus_url = Column(String)
+    syllabus_content = Column(Text)
     teacher_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
 class Lecture(Base):
@@ -62,7 +63,7 @@ class Lecture(Base):
     week_number = Column(Integer)
     title = Column(String)
     file_url = Column(String)
-    career_context_prompt = Column(Text)
+    content_payload = Column(JSONB, default=list) # Will store our dynamic tabs & files
 
 class Announcement(Base):
     __tablename__ = "announcements"
@@ -106,6 +107,7 @@ class Assignment(Base):
     is_weighted = Column(Boolean, default=False)
     weight_percentage = Column(Float, default=0.0)
     answer_key_url = Column(String)
+    quiz_payload = Column(JSONB, default=list)
     skill_node_id = Column(UUID(as_uuid=True), ForeignKey("skill_nodes.id"), nullable=True)
 
 class Submission(Base):

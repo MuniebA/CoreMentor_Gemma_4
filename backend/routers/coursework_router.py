@@ -9,7 +9,6 @@ from database import SessionLocal
 
 router = APIRouter(prefix="/coursework", tags=["Coursework & Assignments"])
 
-# Directory setup for uploads
 UPLOAD_DIR = "./uploads"
 os.makedirs(f"{UPLOAD_DIR}/homework", exist_ok=True)
 os.makedirs(f"{UPLOAD_DIR}/answer_keys", exist_ok=True)
@@ -29,23 +28,38 @@ class AssignmentCreate(BaseModel):
     due_date: datetime
     is_weighted: bool = False
     weight_percentage: float = 0.0
+    quiz_payload: Optional[list] = [] # <-- Added this to accept the quiz JSON
     skill_node_id: Optional[str] = None
 
 class AssignmentResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     title: str
     type: str
-    due_date: datetime
+    due_date: Optional[datetime] = None
     is_weighted: bool
     weight_percentage: float
     
     class Config:
         from_attributes = True
 
+class AssignmentUpdate(BaseModel):
+    title: str
+    due_date: datetime
+    is_weighted: bool
+    weight_percentage: float
+
+class WeightUpdateItem(BaseModel):
+    id: str
+    weight_percentage: float
+
+class BulkWeightUpdate(BaseModel):
+    weights: List[WeightUpdateItem]
+
 # --- Endpoints ---
 
 # 1. Create Coursework (Teacher Only)
-@router.post("/create", response_model=AssignmentResponse)
+# FIX: Changed "/create" to "/" to fix the 404 Error!
+@router.post("/", response_model=AssignmentResponse) 
 def create_coursework(
     data: AssignmentCreate, 
     db: Session = Depends(get_db), 
@@ -57,7 +71,7 @@ def create_coursework(
     ).first()
     
     if not unit:
-        raise HTTPException(status_code=403, detail="Not authorized to add coursework to this unit")
+        raise HTTPException(status_code=403, detail="Not authorized to add coursework")
 
     new_assignment = models.Assignment(
         unit_id=data.unit_id,
@@ -66,12 +80,48 @@ def create_coursework(
         due_date=data.due_date,
         is_weighted=data.is_weighted,
         weight_percentage=data.weight_percentage,
+        quiz_payload=data.quiz_payload, # <-- Save the quiz questions
         skill_node_id=data.skill_node_id
     )
     db.add(new_assignment)
     db.commit()
     db.refresh(new_assignment)
     return new_assignment
+
+# --- Edit Coursework ---
+@router.put("/{assignment_id}")
+def update_coursework(
+    assignment_id: str, 
+    data: AssignmentUpdate, 
+    db: Session = Depends(get_db), 
+    payload: dict = Depends(auth.require_role("Teacher"))
+):
+    assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Coursework not found")
+    
+    assignment.title = data.title
+    assignment.due_date = data.due_date
+    assignment.is_weighted = data.is_weighted
+    assignment.weight_percentage = data.weight_percentage
+    
+    db.commit()
+    return {"message": "Coursework updated successfully"}
+
+# --- Delete Coursework ---
+@router.delete("/{assignment_id}")
+def delete_coursework(
+    assignment_id: str, 
+    db: Session = Depends(get_db), 
+    payload: dict = Depends(auth.require_role("Teacher"))
+):
+    assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Coursework not found")
+    
+    db.delete(assignment)
+    db.commit()
+    return {"message": "Coursework deleted successfully"}
 
 # 2. Upload Answer Key (Teacher Only)
 @router.post("/{assignment_id}/upload-key")
@@ -142,3 +192,17 @@ def get_submission(
         "submission": submission,
         "student_name": student_user.full_name
     }
+
+@router.put("/unit/{unit_id}/weights")
+def update_coursework_weights(
+    unit_id: str, 
+    data: BulkWeightUpdate, 
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher"))
+):
+    for w in data.weights:
+        assignment = db.query(models.Assignment).filter(models.Assignment.id == w.id).first()
+        if assignment:
+            assignment.weight_percentage = w.weight_percentage
+    db.commit()
+    return {"message": "Weights updated successfully"}
