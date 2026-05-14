@@ -30,6 +30,9 @@ class CareerLensResponse(BaseModel):
     themed_instructions: str
     career_context: str
 
+class CareerGoalUpdate(BaseModel):
+    career_goal: str
+
 # --- Endpoints ---
 
 # 1. GET /skill-tree/{unit_id} - Full Hierarchy for SVG UI
@@ -135,3 +138,25 @@ def get_student_stats(db: Session = Depends(get_db), payload: dict = Depends(aut
         "rank": student.rank_title,
         "next_level": (student.level + 1) * 1000
     }
+
+# 8. GET /profile - Student Profile with Career Goal & Rank
+@router.get("/profile")
+def get_student_profile(db: Session = Depends(get_db), payload: dict = Depends(auth.require_role("Student"))):
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    
+    return {
+        "rank_title": student.rank_title,
+        "total_xp": student.total_xp,
+        "level": student.level,
+        "career_goal": student.career_goal
+    }
+
+# 9. PUT /career-goal - Update Career Goal
+@router.put("/career-goal")
+def update_career_goal(data: CareerGoalUpdate, db: Session = Depends(get_db), payload: dict = Depends(auth.require_role("Student"))):
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
+    student.career_goal = data.career_goal
+    db.commit()
+    return {"message": "Career goal updated", "career_goal": student.career_goal}

@@ -83,7 +83,7 @@ async def upload_lecture(
     db.commit()
     return {"message": "Lecture material uploaded", "lecture_id": str(new_lecture.id)}
 
-# --- 3. Student: Upload Homework (With Compression) ---
+# --- 3. Student: Upload Homework (With Compression & PDF Support) ---
 @router.post("/homework/{assignment_id}")
 async def upload_homework(
     assignment_id: str,
@@ -94,19 +94,27 @@ async def upload_homework(
     if payload.get("role") != "Student":
         raise HTTPException(status_code=403, detail="Only students can upload homework")
 
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Only image files are allowed for homework")
+    content_type = file.content_type
+    # FIX 1: Allow PDFs alongside images
+    if not (content_type.startswith("image/") or content_type == "application/pdf"):
+        raise HTTPException(status_code=400, detail="Only images and PDFs are allowed")
 
     content = await file.read()
     file_hash = hash_file(content)
-    save_path = f"uploads/homework/{file_hash}.jpg"
+    file_ext = "pdf" if content_type == "application/pdf" else "jpg"
+    save_path = f"uploads/homework/{file_hash}.{file_ext}"
 
-    # Teammate's original compression logic
     if not os.path.exists(save_path):
-        image = Image.open(io.BytesIO(content))
-        image = image.convert("RGB")
-        image.thumbnail((1920, 1920))
-        image.save(save_path, "JPEG", quality=85)
+        # FIX 2: Only apply PIL compression if it's an image
+        if content_type.startswith("image/"):
+            image = Image.open(io.BytesIO(content))
+            image = image.convert("RGB")
+            image.thumbnail((1920, 1920))
+            image.save(save_path, "JPEG", quality=85)
+        else:
+            # If it's a PDF, just save the raw bytes
+            with open(save_path, "wb") as f:
+                f.write(content)
 
     student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
     

@@ -193,6 +193,7 @@ def get_submission(
         "student_name": student_user.full_name
     }
 
+# 6. Get Student's Coursework Status (Student View)
 @router.put("/unit/{unit_id}/weights")
 def update_coursework_weights(
     unit_id: str, 
@@ -206,3 +207,61 @@ def update_coursework_weights(
             assignment.weight_percentage = w.weight_percentage
     db.commit()
     return {"message": "Weights updated successfully"}
+
+# 7. Get Student's Coursework Status (Student View)
+@router.get("/student/{unit_id}")
+def get_student_coursework(
+    unit_id: str, 
+    db: Session = Depends(get_db), 
+    payload: dict = Depends(auth.require_role("Student"))
+):
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
+    assignments = db.query(models.Assignment).filter(models.Assignment.unit_id == unit_id).all()
+
+    results = []
+    for a in assignments:
+        sub = db.query(models.Submission).filter(
+            models.Submission.student_id == student.id, 
+            models.Submission.assignment_id == a.id
+        ).first()
+        
+        status = "Pending"
+        score = None
+        feedback = None
+        marking_id = None
+        submission_url = None
+        appeal_text = None
+
+        if sub:
+            status = "Submitted (Pending AI/Teacher Review)"
+            submission_url = sub.image_url # FIX 1: Pass the file path
+            
+            draft = db.query(models.AIMarkingDraft).filter(models.AIMarkingDraft.submission_id == sub.id).first()
+            if draft:
+                status = "Graded"
+                score = draft.initial_score
+                feedback = draft.feedback_text
+                marking_id = str(draft.id)
+                
+                # FIX 2: Check if student has already appealed
+                appeal = db.query(models.Appeal).filter(models.Appeal.marking_id == draft.id).first()
+                if appeal:
+                    appeal_text = appeal.student_note
+                    status = "Graded (Appeal Pending)"
+
+        results.append({
+            "id": str(a.id),
+            "title": a.title,
+            "type": a.type,
+            "due_date": a.due_date,
+            "is_weighted": a.is_weighted,
+            "weight_percentage": a.weight_percentage,
+            "status": status,
+            "score": score,
+            "feedback": feedback,
+            "marking_id": marking_id,
+            "submission_url": submission_url,
+            "appeal_text": appeal_text
+        })
+        
+    return results

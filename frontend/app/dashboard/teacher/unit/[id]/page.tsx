@@ -85,8 +85,8 @@ export default function UnitWorkspace() {
                 {/* Placeholders for future tabs */}
                 {!["Home", "Syllabus", "Announcements"].includes(activeTab) && (
                     <div className="bg-white p-12 text-center rounded-xl border border-slate-200 border-dashed">
-                        <h3 className="text-lg font-medium text-slate-900 mb-1">{activeTab}</h3>
-                        <p className="text-slate-500">Component pending.</p>
+                        {/* <h3 className="text-lg font-medium text-slate-900 mb-1">{activeTab}</h3>
+                        <p className="text-slate-500">Component pending.</p> */}
                     </div>
                 )}
             </main>
