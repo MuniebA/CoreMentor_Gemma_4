@@ -45,8 +45,9 @@ export default function SignupPage() {
                 router.push("/login");
             }, 2000);
 
-        } catch (err) {
+        } catch {
             setError("Could not connect to the server. Is the backend running?");
+        } finally {
             setLoading(false);
         }
     };

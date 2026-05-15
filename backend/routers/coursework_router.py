@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import models, auth, os, uuid
+import access
 from database import SessionLocal
 
 router = APIRouter(prefix="/coursework", tags=["Coursework & Assignments"])
@@ -131,9 +132,7 @@ async def upload_answer_key(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    assignment = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
-    if not assignment:
-        raise HTTPException(status_code=404, detail="Assignment not found")
+    assignment = access.assert_can_access_assignment(db, payload, assignment_id)
 
     file_ext = file.filename.split(".")[-1]
     file_path = f"uploads/answer_keys/{uuid.uuid4()}.{file_ext}"
@@ -153,7 +152,9 @@ async def submit_homework(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Student"))
 ):
-    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
+    student = access.get_student_by_user(db, payload.get("sub"))
+    if not access.student_is_enrolled_for_assignment(db, str(student.id), assignment_id):
+        raise HTTPException(status_code=403, detail="You are not enrolled in this assignment's unit")
     
     file_ext = file.filename.split(".")[-1]
     file_path = f"uploads/homework/{uuid.uuid4()}.{file_ext}"
@@ -172,7 +173,12 @@ async def submit_homework(
 
 # 4. Get all coursework for a specific unit
 @router.get("/unit/{unit_id}", response_model=List[AssignmentResponse])
-def get_unit_coursework(unit_id: str, db: Session = Depends(get_db)):
+def get_unit_coursework(
+    unit_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.decode_token),
+):
+    access.assert_can_access_unit(db, payload, unit_id)
     return db.query(models.Assignment).filter(models.Assignment.unit_id == unit_id).all()
 
 # 5. Get Submission Details (Teacher/Admin View)
@@ -182,9 +188,7 @@ def get_submission(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher", "Admin"))
 ):
-    submission = db.query(models.Submission).filter(models.Submission.id == submission_id).first()
-    if not submission:
-        raise HTTPException(status_code=404, detail="Submission not found")
+    submission = access.assert_can_access_submission(db, payload, submission_id)
     
     student_user = db.query(models.User).join(models.StudentProfile).filter(models.StudentProfile.id == submission.student_id).first()
     
@@ -201,8 +205,12 @@ def update_coursework_weights(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
+    access.assert_can_access_unit(db, payload, unit_id)
     for w in data.weights:
-        assignment = db.query(models.Assignment).filter(models.Assignment.id == w.id).first()
+        assignment = db.query(models.Assignment).filter(
+            models.Assignment.id == w.id,
+            models.Assignment.unit_id == unit_id,
+        ).first()
         if assignment:
             assignment.weight_percentage = w.weight_percentage
     db.commit()
@@ -215,7 +223,8 @@ def get_student_coursework(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Student"))
 ):
-    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("sub")).first()
+    access.assert_can_access_unit(db, payload, unit_id)
+    student = access.get_student_by_user(db, payload.get("sub"))
     assignments = db.query(models.Assignment).filter(models.Assignment.unit_id == unit_id).all()
 
     results = []

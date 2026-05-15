@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models, auth
+from agents.config import get_ai_settings
 from database import SessionLocal
 
 router = APIRouter(prefix="/admin", tags=["Admin Control Panel"])
@@ -111,15 +112,31 @@ def link_parent_admin(data: ParentLinkCreateAdmin, db: Session = Depends(get_db)
 # --- 3. System Orchestration ---
 @router.get("/system/status")
 def get_system_health(payload: dict = Depends(auth.require_role("Admin"))):
+    settings = get_ai_settings()
     return {
         "status": "Healthy",
         "gpu_lock": "Unlocked",
-        "active_llm": "Gemma-2b (Idle)",
-        "vision_engine": "Moondream (Idle)",
-        "vram_usage": "1.2 GB / 8.0 GB"
+        "active_llm": settings.ollama_chat_model,
+        "vision_engine": settings.ollama_vision_model,
+        "vram_usage": "Not reported",
     }
 
+
+def _purge_temp_files() -> dict:
+    temp_dir = "./uploads/temp"
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+        os.makedirs(temp_dir)
+        return {"message": "Temporary storage cleared."}
+    return {"message": "Nothing to clear."}
+
+
+# 4. Storage cleanup. POST keeps the older admin UI working; DELETE is the newer API.
 @router.post("/cleanup")
 def trigger_storage_cleanup(payload: dict = Depends(auth.require_role("Admin"))):
-    # In a real app, this would delete temp files. For now, we simulate success.
-    return {"message": "Temporary files purged. Recovered 450MB of disk space."}
+    return _purge_temp_files()
+
+
+@router.delete("/cleanup")
+def purge_temp_files(payload: dict = Depends(auth.require_role("Admin"))):
+    return _purge_temp_files()

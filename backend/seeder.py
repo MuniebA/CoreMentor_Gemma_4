@@ -11,11 +11,11 @@ def seed():
     print("--- Phase 1: Cleaning Database ---")
     # Must delete in reverse order of dependencies (children first)
     tables = [
-        models.DailyHomeworkPlan, models.AgentInteraction, models.Appeal, 
-        models.AIMarkingDraft, models.Submission, models.Assignment, 
-        models.StudentSkillProgress, models.SkillNode, models.Enrollment, 
-        models.Lecture, models.Announcement, models.Unit, 
-        models.ParentChildLink, models.ParentProfile, models.StudentProfile, 
+        models.DailyHomeworkPlan, models.AgentRun, models.AgentInteraction, models.Appeal,
+        models.AIMarkingDraft, models.Submission, models.Assignment,
+        models.StudentSkillProgress, models.SkillNode, models.Enrollment,
+        models.Lecture, models.Announcement, models.Unit,
+        models.ParentChildLink, models.ParentProfile, models.StudentProfile,
         models.TeacherProfile, models.User
     ]
     for table in tables:
@@ -90,7 +90,7 @@ def seed():
     math_node = models.SkillNode(unit_id=units[0].id, node_name="Mathematics")
     db.add(math_node)
     db.commit()
-    
+
     physics_nodes = [
         models.SkillNode(unit_id=units[0].id, node_name="Algebra", parent_node_id=math_node.id),
         models.SkillNode(unit_id=units[0].id, node_name="Newtonian Physics", parent_node_id=math_node.id),
@@ -98,7 +98,7 @@ def seed():
     ]
     db.add_all(physics_nodes)
     db.commit()
-    
+
     db.add_all([
         models.StudentSkillProgress(student_id=s_profs[0].id, node_id=math_node.id, status="Mastered", current_xp=100),
         models.StudentSkillProgress(student_id=s_profs[0].id, node_id=physics_nodes[0].id, status="In-Progress", current_xp=50),
@@ -143,7 +143,7 @@ def seed():
         models.AgentInteraction(student_id=s_profs[1].id, agent_name="Grader", message_payload={"status": "Success"}),
         models.AgentInteraction(student_id=s_profs[2].id, agent_name="Orchestrator", message_payload={"status": "Active"})
     ])
-    
+
     db.add_all([
         models.DailyHomeworkPlan(student_id=s_profs[0].id, planned_for_date=datetime.utcnow(), homework_recipe={"Physics": 30, "Aviation": 70}),
         models.DailyHomeworkPlan(student_id=s_profs[1].id, planned_for_date=datetime.utcnow(), homework_recipe={"Math": 50, "Bio": 50}),

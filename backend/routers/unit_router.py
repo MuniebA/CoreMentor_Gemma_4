@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 import models, auth
+import access
 from database import SessionLocal
 
 router = APIRouter(prefix="/units", tags=["Units & Content"])
@@ -68,9 +69,7 @@ def create_announcement(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
         
     new_announcement = models.Announcement(
         unit_id=unit_id,
@@ -84,7 +83,7 @@ def create_announcement(
 # 3. Get Unit Home Page details
 @router.get("/{unit_id}/home")
 def get_unit_home(unit_id: str, db: Session = Depends(get_db), payload: dict = Depends(auth.decode_token)):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     teacher = db.query(models.User).filter(models.User.id == unit.teacher_id).first()
     announcements = db.query(models.Announcement).filter(models.Announcement.unit_id == unit_id).all()
     
@@ -105,9 +104,7 @@ async def upload_syllabus(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     unit.syllabus_url = syllabus_url
     db.commit()
     return {"message": "Syllabus updated successfully"}
@@ -120,6 +117,7 @@ def save_lecture(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
+    access.assert_can_access_unit(db, payload, unit_id)
     # Check if week already exists, if so, update it. If not, create it.
     lecture = db.query(models.Lecture).filter(
         models.Lecture.unit_id == unit_id, 
@@ -137,13 +135,17 @@ def save_lecture(
             content_payload=data.content_payload
         )
         db.add(new_lecture)
-    
     db.commit()
     return {"message": "Lecture module saved successfully"}
 
 # 6. Get All Lectures for a Unit
 @router.get("/{unit_id}/lectures")
-def get_lectures(unit_id: str, db: Session = Depends(get_db)):
+def get_lectures(
+    unit_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.decode_token),
+):
+    access.assert_can_access_unit(db, payload, unit_id)
     return db.query(models.Lecture).filter(models.Lecture.unit_id == unit_id).order_by(models.Lecture.week_number).all()
 
 # 7. Update Unit Details (Teacher Only)
@@ -154,9 +156,7 @@ def update_unit(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
-    if not unit:
-        raise HTTPException(status_code=404, detail="Unit not found")
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     
     unit.description = data.description
     db.commit()
@@ -171,13 +171,18 @@ def update_syllabus_content(
     db: Session = Depends(get_db),
     payload: dict = Depends(auth.require_role("Teacher"))
 ):
-    unit = db.query(models.Unit).filter(models.Unit.id == unit_id).first()
+    unit = access.assert_can_access_unit(db, payload, unit_id)
     unit.syllabus_content = data.content
     db.commit()
     return {"message": "Syllabus content updated"}
 
 @router.get("/{unit_id}/students")
-def get_unit_students_and_grades(unit_id: str, db: Session = Depends(get_db)):
+def get_unit_students_and_grades(
+    unit_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher", "Admin")),
+):
+    access.assert_can_access_unit(db, payload, unit_id)
     enrollments = db.query(models.Enrollment).filter(models.Enrollment.unit_id == unit_id).all()
     assignments = db.query(models.Assignment).filter(
         models.Assignment.unit_id == unit_id, 
@@ -225,10 +230,13 @@ def get_unit_students_and_grades(unit_id: str, db: Session = Depends(get_db)):
     }
 
 @router.put("/student/{student_id}/notes")
-def update_student_notes(student_id: str, data: NoteUpdate, db: Session = Depends(get_db)):
-    student = db.query(models.StudentProfile).filter(models.StudentProfile.id == student_id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+def update_student_notes(
+    student_id: str,
+    data: NoteUpdate,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(auth.require_role("Teacher", "Admin")),
+):
+    student = access.assert_can_access_student(db, payload, student_id)
     student.teacher_notes = data.teacher_notes
     db.commit()
     return {"message": "Notes saved"}
@@ -240,6 +248,7 @@ def get_student_units(
     db: Session = Depends(get_db), 
     payload: dict = Depends(auth.require_role("Parent", "Admin"))
 ):
+    access.assert_can_access_student(db, payload, student_id)
     enrollments = db.query(models.Enrollment).filter(models.Enrollment.student_id == student_id).all()
     unit_ids = [e.unit_id for e in enrollments]
     units = db.query(models.Unit).filter(models.Unit.id.in_(unit_ids)).all()

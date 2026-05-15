@@ -3,9 +3,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Cookies from 'js-cookie';
 import api from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
+import { saveToken, saveRole, saveName } from '@/lib/auth';
 import Link from 'next/link';
 
 export default function LoginPage() {
@@ -23,16 +23,16 @@ export default function LoginPage() {
       const response = await api.post('/auth/login', { email, password });
       const { access_token, role, full_name } = response.data;
 
-      // Set cookies for Next.js middleware
-      Cookies.set('token', access_token, { expires: 1 });
-      Cookies.set('role', role, { expires: 1 });
+      saveToken(access_token);
+      saveRole(role);
+      saveName(full_name);
 
       // Set global state
       setToken(access_token);
 
       // Route based on account type
       router.push(`/dashboard/${role.toLowerCase()}`);
-    } catch (err) {
+    } catch {
       setError('Invalid email or password. Please try again.');
     }
   };
@@ -87,7 +87,7 @@ export default function LoginPage() {
 
         <div className="mt-6 text-center">
           <p className="text-sm text-slate-500">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/signup" className="text-blue-600 hover:text-blue-800 font-medium">
               Create one
             </Link>

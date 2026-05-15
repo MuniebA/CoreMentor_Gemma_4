@@ -145,6 +145,22 @@ class AgentInteraction(Base):
     message_payload = Column(JSONB)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workflow = Column(String, nullable=False)
+    actor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    actor_role = Column(String)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("student_profiles.id"))
+    submission_id = Column(UUID(as_uuid=True), ForeignKey("submissions.id"), nullable=True)
+    assignment_id = Column(UUID(as_uuid=True), ForeignKey("assignments.id"), nullable=True)
+    selected_agents = Column(JSONB)
+    status = Column(String, nullable=False)
+    persisted = Column(Boolean, default=True)
+    error_summary = Column(Text)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    finished_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class DailyHomeworkPlan(Base):
     __tablename__ = "daily_homework_plans"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

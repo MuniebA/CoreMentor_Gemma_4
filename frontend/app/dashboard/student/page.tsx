@@ -1,231 +1,648 @@
-// frontend/app/dashboard/student/page.tsx
 "use client";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/lib/store";
-import Cookies from "js-cookie";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { getToken, getRole, getName, logout, authHeaders } from "../../../lib/auth";
 
-interface Unit {
+const API_BASE = "http://127.0.0.1:8000/api/v1";
+
+type Mark = {
+    draft_id: string;
+    assignment_id: string;
+    score: number;
+    feedback: string;
+    status: string;
+};
+
+type Unit = {
     id: string;
     unit_name: string;
-    description: string;
-    teacher_name: string;
-}
+    description?: string | null;
+};
 
-interface StudentProfile {
+type Assignment = {
+    id: string;
+    title: string;
+    type: string;
+    due_date: string;
+    is_weighted: boolean;
+    weight_percentage: number;
+};
+
+type HWBlock = { name: string; minutes: number; purpose: string };
+type HWPlan = {
+    id: string;
+    homework_recipe: {
+        agent?: string;
+        planned_for_date?: string;
+        total_minutes?: number;
+        blocks?: HWBlock[];
+        homework_recipe?: Record<string, { minutes: number; focus: string }>;
+        completion_signal?: string;
+    };
+    is_completed: boolean;
+    planned_for_date: string | null;
+};
+
+type CareerLens = {
+    original_title: string;
+    themed_title: string;
+    themed_instructions: string;
+    career_context: string;
+};
+
+type ShadowMentor = {
+    career_goal: string;
+    root_cause_diagnosis: string | null;
+    mentor_notes: string | null;
+    ai_status: string;
+};
+
+type StudentStats = {
+    level: number;
+    xp: number;
+    rank: string;
+    next_level: number;
+};
+
+type StudentProfile = {
     rank_title: string;
     total_xp: number;
     level: number;
     career_goal: string | null;
-}
+};
+
+const subscribeToAuthStorage = (onStoreChange: () => void) => {
+    if (typeof window === "undefined") return () => {};
+    window.addEventListener("storage", onStoreChange);
+    return () => window.removeEventListener("storage", onStoreChange);
+};
 
 export default function StudentDashboard() {
     const router = useRouter();
-    const { fullName, logout } = useAuthStore();
-    
-    const [units, setUnits] = useState<Unit[]>([]);
-    const [profile, setProfile] = useState<StudentProfile | null>(null);
+    const [activeTab, setActiveTab] = useState("classrooms");
     const [loading, setLoading] = useState(true);
-    
-    // Career Goal Setup State
-    const [isSettingCareer, setIsSettingCareer] = useState(false);
-    const [newCareerGoal, setNewCareerGoal] = useState("");
+    const [message, setMessage] = useState("");
+
+    const [marks, setMarks] = useState<Mark[]>([]);
+    const [units, setUnits] = useState<Unit[]>([]);
+    const [hwPlan, setHwPlan] = useState<HWPlan | null>(null);
+    const [stats, setStats] = useState<StudentStats | null>(null);
+    const [profile, setProfile] = useState<StudentProfile | null>(null);
+    const [mentor, setMentor] = useState<ShadowMentor | null>(null);
+    const [careerLens, setCareerLens] = useState<CareerLens | null>(null);
+    const [assignments, setAssignments] = useState<Assignment[]>([]);
+    const [selectedUnitId, setSelectedUnitId] = useState("");
+    const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
+    const [appealNote, setAppealNote] = useState("");
+    const [careerGoalDraft, setCareerGoalDraft] = useState("");
+
+    const name = useSyncExternalStore(subscribeToAuthStorage, getName, () => null);
+
+    const fetchAll = async () => {
+        setLoading(true);
+        await Promise.all([fetchMarks(), fetchUnits(), fetchHWPlan(), fetchStats(), fetchProfile()]);
+        setLoading(false);
+    };
+
+    const fetchMarks = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/marking/my-marks`, { headers: authHeaders() });
+            const data = await res.json();
+            setMarks(Array.isArray(data.data) ? data.data : []);
+        } catch { /* handled */ }
+    };
+
+    const fetchUnits = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/units/`, { headers: authHeaders() });
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : [];
+            setUnits(list);
+            if (list.length > 0 && !selectedUnitId) setSelectedUnitId(list[0].id);
+        } catch { /* handled */ }
+    };
+
+    const fetchHWPlan = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/insights/hw-plan`, { headers: authHeaders() });
+            const data = await res.json();
+            if (data.id) setHwPlan(data);
+        } catch { /* handled */ }
+    };
+
+    const fetchStats = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/gamification/student/stats`, { headers: authHeaders() });
+            const data = await res.json();
+            setStats(data);
+        } catch { /* handled */ }
+    };
+
+    const fetchProfile = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/gamification/profile`, { headers: authHeaders() });
+            const data = await res.json();
+            setProfile(data);
+            setCareerGoalDraft(data.career_goal || "");
+        } catch { /* handled */ }
+    };
+
+    const fetchMentor = async (studentId: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/insights/shadow-mentor/${studentId}`, { headers: authHeaders() });
+            const data = await res.json();
+            setMentor(data);
+        } catch { /* handled */ }
+    };
+
+    const fetchAssignments = async (unitId: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/coursework/unit/${unitId}`, { headers: authHeaders() });
+            const data = await res.json();
+            setAssignments(Array.isArray(data) ? data : []);
+        } catch { /* handled */ }
+    };
+
+    const fetchCareerLens = async (assignmentId: string) => {
+        try {
+            const res = await fetch(`${API_BASE}/gamification/career/lens/${assignmentId}`, { headers: authHeaders() });
+            const data = await res.json();
+            setCareerLens(data);
+        } catch { /* handled */ }
+    };
+
+    const submitAppeal = async (markingId: string) => {
+        if (!appealNote.trim()) return;
+        const res = await fetch(`${API_BASE}/marking/appeal`, {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ marking_id: markingId, student_note: appealNote }),
+        });
+        if (res.ok) {
+            setMessage("Appeal submitted successfully.");
+            setAppealNote("");
+        } else {
+            const err = await res.json();
+            setMessage(err.detail || "Appeal failed.");
+        }
+    };
+
+    const uploadHomework = async (assignmentId: string, file: File) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch(`${API_BASE}/upload/homework/${assignmentId}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${getToken()}` },
+            body: formData,
+        });
+        if (res.ok) {
+            setMessage("Homework submitted!");
+            fetchMarks();
+        } else {
+            const err = await res.json();
+            setMessage(err.detail || "Upload failed.");
+        }
+    };
+
+    const saveCareerGoal = async () => {
+        const goal = careerGoalDraft.trim();
+        if (!goal) return;
+        const res = await fetch(`${API_BASE}/gamification/career-goal`, {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ career_goal: goal }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+            setProfile(current => current ? { ...current, career_goal: data.career_goal } : current);
+            setMessage("Career goal saved.");
+        } else {
+            setMessage(data.detail || "Could not save career goal.");
+        }
+    };
 
     useEffect(() => {
-        fetchDashboardData();
+        const role = getRole();
+        if (!getToken() || role !== "Student") { router.push("/"); return; }
+        const timer = window.setTimeout(() => {
+            fetchAll();
+        }, 0);
+        return () => window.clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const fetchDashboardData = async () => {
-        const token = Cookies.get("token");
-        if (!token) return router.push("/login");
+    useEffect(() => {
+        if (!selectedUnitId) return;
+        const timer = window.setTimeout(() => {
+            fetchAssignments(selectedUnitId);
+        }, 0);
+        return () => window.clearTimeout(timer);
+    }, [selectedUnitId]);
 
-        try {
-            // Fetch both Units and Profile concurrently
-            const [unitsRes, profileRes] = await Promise.all([
-                fetch("http://127.0.0.1:8000/api/v1/units/", { headers: { "Authorization": `Bearer ${token}` } }),
-                fetch("http://127.0.0.1:8000/api/v1/gamification/profile", { headers: { "Authorization": `Bearer ${token}` } })
-            ]);
+    if (loading) return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <p className="text-gray-500 text-lg">Loading dashboard...</p>
+        </div>
+    );
 
-            if (unitsRes.ok) setUnits(await unitsRes.json());
-            if (profileRes.ok) setProfile(await profileRes.json());
-            
-        } catch (err) {
-            console.error("Failed to fetch dashboard data");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSaveCareerGoal = async () => {
-        const token = Cookies.get("token");
-        try {
-            const res = await fetch("http://127.0.0.1:8000/api/v1/gamification/career-goal", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ career_goal: newCareerGoal })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setProfile(prev => prev ? { ...prev, career_goal: data.career_goal } : null);
-                setIsSettingCareer(false);
-            }
-        } catch (err) {
-            alert("Failed to save career goal.");
-        }
-    };
-
-    const handleLogout = () => {
-        Cookies.remove("token");
-        Cookies.remove("role");
-        logout();
-        router.push("/login");
-    };
-
-    if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center">Loading your learning path...</div>;
+    const recipe = hwPlan?.homework_recipe;
+    const blocks: HWBlock[] = recipe?.blocks || [];
+    const recipeMap = recipe?.homework_recipe || {};
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col">
-            {/* Minimalist Navbar */}
-            <nav className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center z-10 shadow-sm">
-                <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center">
-                        <span className="text-white font-bold text-sm">CM</span>
-                    </div>
-                    <span className="text-xl font-bold text-slate-900 tracking-tight">CoreMentor</span>
-                </div>
-                <div className="flex items-center space-x-6">
-                    {profile && (
-                        <div className="hidden md:flex items-center space-x-4 bg-slate-50 px-4 py-1.5 rounded-full border border-slate-200">
-                            <span className="text-sm font-bold text-slate-700">Level {profile.level}</span>
-                            <span className="text-amber-600 font-bold text-sm flex items-center">
-                                🏆 {profile.rank_title}
-                            </span>
-                            <span className="text-sm font-mono text-blue-600 font-bold">{profile.total_xp} XP</span>
-                        </div>
+        <div className="min-h-screen bg-gray-50">
+            <nav className="bg-white shadow-sm px-6 py-4 flex justify-between items-center">
+                <h1 className="text-xl font-bold text-blue-600">CoreMentor</h1>
+                <div className="flex items-center gap-4">
+                    <span className="text-gray-600 text-sm">Welcome, {name}</span>
+                    {stats && (
+                        <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full font-medium">
+                            {stats.rank} &middot; Lv.{stats.level} &middot; {stats.xp} XP
+                        </span>
                     )}
-                    <span className="text-sm font-medium text-slate-600">
-                        {fullName || "Student"}
-                    </span>
-                    <button onClick={handleLogout} className="text-sm text-slate-500 hover:text-blue-600 font-medium transition-colors">
-                        Log out
-                    </button>
+                    <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full font-medium">Student</span>
+                    <button onClick={logout} className="text-sm text-red-500 hover:underline">Logout</button>
                 </div>
             </nav>
 
-            <main className="flex-grow max-w-7xl mx-auto w-full p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-                
-                {/* --- LEFT COLUMN: ENROLLED UNITS --- */}
-                <div className="lg:col-span-2 space-y-6">
-                    <div>
-                        <h1 className="text-3xl font-bold text-slate-900">Your Learning Path</h1>
-                        <p className="text-slate-500 mt-2">Select a unit to view lectures, complete coursework, and earn XP.</p>
+            <div className="max-w-6xl mx-auto px-6 py-8">
+                {message && (
+                    <div className="bg-green-50 text-green-700 p-3 rounded-lg mb-4 text-sm">
+                        {message}
+                        <button onClick={() => setMessage("")} className="ml-4 text-green-500 hover:underline">Dismiss</button>
                     </div>
+                )}
 
-                    {/* Career Goal Banner - Required for AI Career Lens */}
-                    {profile && !profile.career_goal && !isSettingCareer && (
-                        <div className="bg-indigo-50 border border-indigo-200 p-6 rounded-xl flex justify-between items-center shadow-sm">
-                            <div>
-                                <h3 className="font-bold text-indigo-900 text-lg">Define Your Career Path</h3>
-                                <p className="text-indigo-700 text-sm mt-1 max-w-md">Tell the Career Architect AI what you want to be when you grow up, and it will theme your math and science questions around your dream job!</p>
+                <div className="flex gap-2 mb-6 border-b border-gray-200">
+                    {[
+                        { key: "classrooms", label: "Classrooms" },
+                        { key: "quest", label: "Daily Quest" },
+                        { key: "coursework", label: "Coursework" },
+                        { key: "marks", label: "My Marks" },
+                        { key: "mentor", label: "Shadow Mentor" },
+                        { key: "career", label: "Career Lens" },
+                    ].map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+                                activeTab === tab.key
+                                    ? "border-blue-600 text-blue-600"
+                                    : "border-transparent text-gray-500 hover:text-gray-700"
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Classrooms */}
+                {activeTab === "classrooms" && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-xl shadow-sm p-5">
+                            <div className="flex flex-col md:flex-row md:items-end gap-3">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-500 mb-1 block">Career Goal</label>
+                                    <input
+                                        value={careerGoalDraft}
+                                        onChange={(e) => setCareerGoalDraft(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Software engineer, doctor, architect..."
+                                    />
+                                </div>
+                                <button onClick={saveCareerGoal} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition">
+                                    Save Goal
+                                </button>
                             </div>
-                            <button onClick={() => setIsSettingCareer(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition">
-                                Set Career Goal
-                            </button>
+                            {profile?.career_goal && (
+                                <p className="text-xs text-gray-500 mt-3">Current path: {profile.career_goal}</p>
+                            )}
                         </div>
-                    )}
 
-                    {isSettingCareer && (
-                        <div className="bg-white border border-indigo-200 p-6 rounded-xl shadow-sm">
-                            <h3 className="font-bold text-slate-900 mb-2">What is your dream career?</h3>
-                            <div className="flex space-x-3">
-                                <input 
-                                    type="text" 
-                                    value={newCareerGoal}
-                                    onChange={(e) => setNewCareerGoal(e.target.value)}
-                                    placeholder="e.g., Software Engineer, Doctor, Pilot, Artist..."
-                                    className="flex-1 px-4 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 text-slate-900"
-                                />
-                                <button onClick={handleSaveCareerGoal} className="bg-indigo-600 text-white px-5 py-2 rounded-md font-medium hover:bg-indigo-700 transition">Save Path</button>
-                                <button onClick={() => setIsSettingCareer(false)} className="text-slate-500 hover:text-slate-700 px-3">Cancel</button>
+                        {units.length === 0 ? (
+                            <div className="bg-white rounded-xl p-8 text-center text-gray-400 shadow-sm">
+                                You are not enrolled in any units yet.
                             </div>
-                        </div>
-                    )}
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {units.map(unit => (
+                                    <Link href={`/dashboard/student/unit/${unit.id}`} key={unit.id} className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md border border-gray-100 transition">
+                                        <p className="font-semibold text-gray-800">{unit.unit_name}</p>
+                                        <p className="text-sm text-gray-500 mt-2 line-clamp-3">{unit.description || "No description provided."}</p>
+                                        <p className="text-xs text-blue-600 mt-4 font-medium">Open classroom &rarr;</p>
+                                    </Link>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
-                    {/* Enrolled Units Grid */}
-                    {units.length === 0 ? (
-                        <div className="bg-white p-12 text-center rounded-xl border border-slate-200 border-dashed">
-                            <h3 className="text-lg font-medium text-slate-900 mb-1">Not enrolled in any units</h3>
-                            <p className="text-slate-500">You will see your classes here once your teacher adds you to a roster.</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {units.map((unit) => (
-                                <Link href={`/dashboard/student/unit/${unit.id}`} key={unit.id} className="group block">
-                                    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col h-full">
-                                        <div className="flex-grow">
-                                            <h2 className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-600 transition-colors">
-                                                {unit.unit_name}
-                                            </h2>
-                                            <p className="text-slate-500 text-sm line-clamp-2">
-                                                {unit.description || "No description provided."}
-                                            </p>
+                {/* ── Daily Quest (Load Balancer output) ── */}
+                {activeTab === "quest" && (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-800">Today&apos;s Homework Plan</h2>
+                        {!hwPlan ? (
+                            <div className="bg-white rounded-xl p-8 text-center text-gray-400 shadow-sm">
+                                No plan generated yet. Complete more work for the AI to build your daily quest.
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <p className="text-sm text-gray-500">
+                                            Planned for {hwPlan.planned_for_date ? new Date(hwPlan.planned_for_date).toLocaleDateString() : "Today"}
+                                        </p>
+                                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                            hwPlan.is_completed ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                                        }`}>
+                                            {hwPlan.is_completed ? "Completed" : "In Progress"}
+                                        </span>
+                                    </div>
+
+                                    {recipe?.total_minutes && (
+                                        <p className="text-2xl font-bold text-blue-600 mb-4">{recipe.total_minutes} min total</p>
+                                    )}
+
+                                    {blocks.length > 0 && (
+                                        <div className="space-y-3">
+                                            {blocks.map((block, i) => (
+                                                <div key={i} className="flex items-start gap-4 bg-gray-50 rounded-lg p-4">
+                                                    <div className="bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full mt-0.5">
+                                                        {block.minutes}m
+                                                    </div>
+                                                    <div>
+                                                        <p className="font-medium text-gray-800">{block.name}</p>
+                                                        <p className="text-sm text-gray-500">{block.purpose}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                        <div className="pt-4 mt-4 border-t border-slate-100 flex justify-between items-center">
-                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Enter Classroom</span>
-                                            <svg className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                                    )}
+
+                                    {Object.keys(recipeMap).length > 0 && (
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                                            {Object.entries(recipeMap).map(([key, val]) => (
+                                                <div key={key} className="border border-gray-200 rounded-lg p-3">
+                                                    <p className="text-sm font-medium text-gray-700 capitalize">{key.replace(/_/g, " ")}</p>
+                                                    <p className="text-xs text-gray-500">{val.minutes} min &middot; {val.focus}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {recipe?.completion_signal && (
+                                        <p className="text-xs text-gray-400 mt-4 italic">Done when: {recipe.completion_signal}</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── Coursework & Submissions ── */}
+                {activeTab === "coursework" && (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-800">My Coursework</h2>
+
+                        <div className="bg-white rounded-xl shadow-sm p-5">
+                            <label className="text-xs text-gray-500 mb-1 block">Select Unit</label>
+                            <select
+                                value={selectedUnitId}
+                                onChange={(e) => setSelectedUnitId(e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {units.map(u => (
+                                    <option key={u.id} value={u.id}>{u.unit_name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {assignments.length === 0 ? (
+                            <div className="bg-white rounded-xl p-8 text-center text-gray-400 shadow-sm">
+                                No assignments for this unit yet.
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {assignments.map(a => (
+                                    <div key={a.id} className="bg-white rounded-xl shadow-sm p-5">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div>
+                                                <p className="font-medium text-gray-800">{a.title}</p>
+                                                <p className="text-xs text-gray-500">{a.type} {a.is_weighted ? `(${a.weight_percentage}% weighted)` : ""}</p>
+                                            </div>
+                                            {a.due_date && (
+                                                <span className="text-xs text-gray-400">
+                                                    Due: {new Date(a.due_date).toLocaleDateString()}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-gray-500 mb-1 block">Upload Homework</label>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) uploadHomework(a.id, file);
+                                                }}
+                                                className="text-sm text-gray-600"
+                                            />
                                         </div>
                                     </div>
-                                </Link>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* --- RIGHT COLUMN: WIDGETS --- */}
-                <div className="space-y-6">
-                    
-                    {/* Career Lens Status */}
-                    {profile?.career_goal && (
-                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -z-0"></div>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 relative z-10">AI Career Lens: Active</h3>
-                            <p className="font-bold text-slate-900 text-xl relative z-10">{profile.career_goal}</p>
-                            <p className="text-xs text-slate-500 mt-2 relative z-10">Coursework will be themed around this profession.</p>
-                        </div>
-                    )}
-
-                    {/* AI Daily Quest Widget Placeholder */}
-                    <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-xl shadow-md text-white">
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="font-bold text-lg flex items-center">
-                                <svg className="w-5 h-5 mr-2 text-blue-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                                Daily AI Quest
-                            </h3>
-                            <span className="bg-white/20 text-white text-xs px-2 py-1 rounded font-medium">Load Balancer</span>
-                        </div>
-                        <p className="text-sm text-blue-100 mb-6">The Shadow Mentor is analyzing your grades and calculating the optimal mix of subjects for you to focus on today.</p>
-                        
-                        <div className="space-y-3">
-                            <div className="bg-white/10 rounded-lg p-3 flex justify-between items-center border border-white/20">
-                                <div>
-                                    <p className="text-sm font-bold">Algebra Practice</p>
-                                    <p className="text-xs text-blue-200">Recommended • +50 XP</p>
-                                </div>
-                                <button className="bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded hover:bg-blue-50 transition">Start</button>
+                                ))}
                             </div>
-                            <div className="bg-white/10 rounded-lg p-3 flex justify-between items-center border border-white/20">
-                                <div>
-                                    <p className="text-sm font-bold">Read Physics Ch. 3</p>
-                                    <p className="text-xs text-blue-200">Review • +30 XP</p>
-                                </div>
-                                <button className="bg-white text-blue-700 text-xs font-bold px-3 py-1.5 rounded hover:bg-blue-50 transition">Start</button>
-                            </div>
-                        </div>
+                        )}
                     </div>
+                )}
 
-                </div>
-            </main>
+                {/* ── My Marks & Appeals ── */}
+                {activeTab === "marks" && (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-800">Approved Marks ({marks.length})</h2>
+                        {marks.length === 0 ? (
+                            <div className="bg-white rounded-xl p-8 text-center text-gray-400 shadow-sm">
+                                No approved marks yet. Marks appear after teacher review.
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {marks.map(m => (
+                                    <div key={m.draft_id} className="bg-white rounded-xl shadow-sm p-5">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div>
+                                                <p className="text-sm text-gray-500">Assignment</p>
+                                                <p className="text-xs font-mono text-gray-700">{m.assignment_id.slice(0, 8)}...</p>
+                                            </div>
+                                            <p className="text-2xl font-bold text-blue-600">{m.score}%</p>
+                                        </div>
+                                        <div className="mb-3">
+                                            <p className="text-sm text-gray-500 mb-1">Feedback</p>
+                                            <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">{m.feedback}</p>
+                                        </div>
+                                        <div className="border-t border-gray-100 pt-3">
+                                            <p className="text-xs text-gray-500 mb-2">Disagree? Submit an appeal:</p>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Explain why you disagree..."
+                                                    value={appealNote}
+                                                    onChange={(e) => setAppealNote(e.target.value)}
+                                                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                />
+                                                <button
+                                                    onClick={() => submitAppeal(m.draft_id)}
+                                                    className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 transition"
+                                                >
+                                                    Appeal
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── Shadow Mentor ── */}
+                {activeTab === "mentor" && (
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-gray-800">Shadow Mentor Analysis</h2>
+                            <button
+                                onClick={async () => {
+                                    const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
+                                    const me = await res.json();
+                                    if (me.user_id) {
+                                        const profileRes = await fetch(`${API_BASE}/gamification/student/stats`, { headers: authHeaders() });
+                                        if (profileRes.ok) {
+                                            const stRes = await fetch(`${API_BASE}/insights/shadow-mentor/${me.user_id}`, { headers: authHeaders() });
+                                            if (!stRes.ok) {
+                                                const meRes = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
+                                                const meData = await meRes.json();
+                                                void meData;
+                                            }
+                                        }
+                                    }
+                                    fetchStats();
+                                    const meRes2 = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() });
+                                    const me2 = await meRes2.json();
+                                    if (me2.user_id) fetchMentor(me2.user_id);
+                                }}
+                                className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-900 transition"
+                            >
+                                Refresh
+                            </button>
+                        </div>
+                        {!mentor ? (
+                            <div className="bg-white rounded-xl p-8 text-center text-gray-400 shadow-sm">
+                                <p className="mb-4">Click Refresh to load your learning analysis.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="bg-white rounded-xl shadow-sm p-6">
+                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                        <div>
+                                            <p className="text-sm text-gray-500">Career Goal</p>
+                                            <p className="text-lg font-bold text-blue-600">{mentor.career_goal}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm text-gray-500">AI Status</p>
+                                            <p className="text-sm text-gray-600">{mentor.ai_status}</p>
+                                        </div>
+                                    </div>
+                                    {mentor.root_cause_diagnosis && (
+                                        <div className="mb-4">
+                                            <p className="text-sm text-gray-500 mb-1">Root Cause Diagnosis</p>
+                                            <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                                {mentor.root_cause_diagnosis}
+                                            </p>
+                                        </div>
+                                    )}
+                                    {mentor.mentor_notes && (
+                                        <div>
+                                            <p className="text-sm text-gray-500 mb-1">Mentor Notes</p>
+                                            <div className="bg-gray-50 p-3 rounded-lg space-y-1">
+                                                {mentor.mentor_notes.split("\n").map((note, i) => (
+                                                    <p key={i} className="text-sm text-gray-700">{note}</p>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── Career Lens (Career Architect) ── */}
+                {activeTab === "career" && (
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-800">Career Architect</h2>
+                        <p className="text-sm text-gray-500">
+                            Select an assignment to see how it connects to your career goal.
+                        </p>
+
+                        <div className="bg-white rounded-xl shadow-sm p-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs text-gray-500 mb-1 block">Unit</label>
+                                    <select
+                                        value={selectedUnitId}
+                                        onChange={(e) => setSelectedUnitId(e.target.value)}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        {units.map(u => (
+                                            <option key={u.id} value={u.id}>{u.unit_name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-500 mb-1 block">Assignment</label>
+                                    <select
+                                        value={selectedAssignmentId}
+                                        onChange={(e) => {
+                                            setSelectedAssignmentId(e.target.value);
+                                            if (e.target.value) fetchCareerLens(e.target.value);
+                                        }}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        <option value="">Choose an assignment...</option>
+                                        {assignments.map(a => (
+                                            <option key={a.id} value={a.id}>{a.title}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        {careerLens && (
+                            <div className="bg-white rounded-xl shadow-sm p-6">
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500">Original Assignment</p>
+                                    <p className="font-medium text-gray-700">{careerLens.original_title}</p>
+                                </div>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500">Career-Themed Version</p>
+                                    <p className="font-medium text-blue-700">{careerLens.themed_title}</p>
+                                </div>
+                                <div className="mb-4">
+                                    <p className="text-sm text-gray-500 mb-1">Why This Matters</p>
+                                    <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                        {careerLens.career_context}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-500 mb-1">Instructions</p>
+                                    <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+                                        {careerLens.themed_instructions}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

@@ -16,7 +16,6 @@ export default function LoginPage() {
         setLoading(true);
         setError("");
         try {
-            // FIX: Added /api/v1 to correctly route to your FastAPI backend
             const res = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -39,7 +38,7 @@ export default function LoginPage() {
             const lowerRole = data.role.toLowerCase();
             router.push(`/dashboard/${lowerRole}`);
 
-        } catch (err) {
+        } catch {
             setError("Could not connect to the server. Is the backend running?");
         } finally {
             setLoading(false);

@@ -6,3 +6,4 @@ build/
 node_modules/
 backend/uploads/answer_keys/*
 backend/uploads/homework/*
+backend/storage/chroma/

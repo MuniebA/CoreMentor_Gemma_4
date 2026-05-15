@@ -1,38 +1,53 @@
 // frontend/lib/auth.ts
+import Cookies from "js-cookie";
+
+const getStorage = (): Storage | null => {
+    if (typeof window === "undefined") return null;
+    if (!window.localStorage || typeof window.localStorage.getItem !== "function") return null;
+    return window.localStorage;
+};
 
 export const saveToken = (token: string) => {
-    localStorage.setItem("access_token", token);
+    getStorage()?.setItem("access_token", token);
+    Cookies.set("token", token, { expires: 1 });
 };
 
 export const getToken = (): string | null => {
-    return localStorage.getItem("access_token");
+    return getStorage()?.getItem("access_token") || Cookies.get("token") || null;
 };
 
 export const removeToken = () => {
-    localStorage.removeItem("access_token");
+    getStorage()?.removeItem("access_token");
+    Cookies.remove("token");
 };
 
 export const saveRole = (role: string) => {
-    localStorage.setItem("user_role", role);
+    getStorage()?.setItem("user_role", role);
+    Cookies.set("role", role, { expires: 1 });
 };
 
 export const getRole = (): string | null => {
-    return localStorage.getItem("user_role");
+    return getStorage()?.getItem("user_role") || Cookies.get("role") || null;
 };
 
 export const saveName = (name: string) => {
-    localStorage.setItem("full_name", name);
+    getStorage()?.setItem("full_name", name);
+    Cookies.set("full_name", name, { expires: 1 });
 };
 
 export const getName = (): string | null => {
-    return localStorage.getItem("full_name");
+    return getStorage()?.getItem("full_name") || Cookies.get("full_name") || null;
 };
 
 export const logout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("user_role");
-    localStorage.removeItem("full_name");
-    window.location.href = "/";
+    const storage = getStorage();
+    storage?.removeItem("access_token");
+    storage?.removeItem("user_role");
+    storage?.removeItem("full_name");
+    Cookies.remove("token");
+    Cookies.remove("role");
+    Cookies.remove("full_name");
+    if (typeof window !== "undefined") window.location.href = "/";
 };
 
 export const authHeaders = () => ({
