@@ -39,7 +39,7 @@ export default function LoginPage() {
             else if (data.role === "Parent") router.push("/dashboard/parent");
             else if (data.role === "Admin") router.push("/dashboard/admin");
 
-        } catch (err) {
+        } catch {
             setError("Could not connect to server");
         } finally {
             setLoading(false);

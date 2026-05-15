@@ -35,7 +35,7 @@ export default function SignupPage() {
 
             router.push("/");
 
-        } catch (err) {
+        } catch {
             setError("Could not connect to server");
         } finally {
             setLoading(false);
