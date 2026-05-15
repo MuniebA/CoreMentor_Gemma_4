@@ -232,3 +232,26 @@ def update_student_notes(student_id: str, data: NoteUpdate, db: Session = Depend
     student.teacher_notes = data.teacher_notes
     db.commit()
     return {"message": "Notes saved"}
+
+# 9. Get Student's Coursework Status (Parents View)
+@router.get("/student/{student_id}/enrolled")
+def get_student_units(
+    student_id: str, 
+    db: Session = Depends(get_db), 
+    payload: dict = Depends(auth.require_role("Parent", "Admin"))
+):
+    enrollments = db.query(models.Enrollment).filter(models.Enrollment.student_id == student_id).all()
+    unit_ids = [e.unit_id for e in enrollments]
+    units = db.query(models.Unit).filter(models.Unit.id.in_(unit_ids)).all()
+    
+    # Package it with the teacher's name for the UI
+    results = []
+    for u in units:
+        teacher = db.query(models.User).filter(models.User.id == u.teacher_id).first()
+        results.append({
+            "id": str(u.id),
+            "unit_name": u.unit_name,
+            "description": u.description,
+            "teacher_name": teacher.full_name if teacher else "Unknown"
+        })
+    return results

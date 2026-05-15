@@ -61,7 +61,13 @@ def get_shadow_mentor_analysis(student_id: str, db: Session = Depends(get_db), p
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
+    user = db.query(models.User).filter(models.User.id == student.user_id).first()
+    
     return {
+        "full_name": user.full_name,
+        "level": student.level,
+        "total_xp": student.total_xp,
+        "rank_title": student.rank_title,
         "career_goal": student.career_goal,
         "root_cause_diagnosis": student.root_cause_analysis,
         "mentor_notes": student.teacher_notes,
